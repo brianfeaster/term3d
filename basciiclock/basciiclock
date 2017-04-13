@@ -1,0 +1,416 @@
+#!/bin/bash
+
+#
+# Poor man's console 3d lib
+# Concepts
+#  * Everything's an array
+#  * Everything's fixed point because bash math is stupid
+#  * Unit circle radius=120
+#  * Radian SINTABLE 120 in size
+#  * Presume -Z extends behind screen
+# Notes:
+#  Although you can pass an array as a symbolic reference to a function as ary[@] then
+#  copy it locally with myary=(${!1}), it's faster just to pass the array around
+#  as an expanded list of values "${ary[*]}" and copied locally with myary=($1).
+#  It's even faster to pass the array as arguments to the function then consuming
+#  with shift.
+
+CSI=$'\e['
+SINTABLE=(0 6 12 18 25 31 37 43 49 54 60 65 70 75 80 85 89 93 97 101 104 107 110 112 114 116 117 119 119 120 120 120 119 119 117 116 114 112 110 107 104 101 97 93 89 85 80 75 70 65 60 54 49 43 37 31 25 18 12 6 0 -6 -12 -18 -25 -31 -37 -43 -49 -54 -60 -65 -70 -75 -80 -85 -89 -93 -97 -101 -104 -107 -110 -112 -114 -116 -117 -119 -119 -120 -120 -120 -119 -119 -117 -116 -114 -112 -110 -107 -104 -101 -97 -93 -89 -85 -80 -75 -70 -65 -60 -54 -49 -43 -37 -31 -25 -18 -12 -6)
+COSTABLE=(120 120 119 119 117 116 114 112 110 107 104 101 97 93 89 85 80 75 70 65 60 54 49 43 37 31 25 18 12 6 0 -6 -12 -18 -25 -31 -37 -43 -49 -54 -60 -65 -70 -75 -80 -85 -89 -93 -97 -101 -104 -107 -110 -112 -114 -116 -117 -119 -119 -120 -120 -120 -119 -119 -117 -116 -114 -112 -110 -107 -104 -101 -97 -93 -89 -85 -80 -75 -70 -65 -60 -54 -49 -43 -37 -31 -25 -18 -12 -6 0 6 12 18 25 31 37 43 49 54 60 65 70 75 80 85 89 93 97 101 104 107 110 112 114 116 117 119 119 120)
+
+function hex { printf %x $1; }
+function aoctopus { printf "\xf0\x9f\x90\x${1:-$(hex $((128+RANDOM%64)))}"; }
+
+P   (){ printf %s $@ ; }
+dv  (){ while [ 0 -lt $# ]; do printf '[%6d %6d %6d %6d]\n' $1 $2 $3 $4; shift 4; done; }
+dvn  (){ while [ 0 -lt $# ]; do printf '[%6d %6d %6d %6d | %6d]\n' $(($1/$4)) $(($2/$4)) $(($3/$4)) $(($4/$4)) $4; shift 4; done; }
+dm4 (){ printf '[%6d %6d %6d %6d]\n' $1 $2 $3 $4 $5 $6 $7 $8 $9 ${10} ${11} ${12} ${13} ${14} ${15} ${16}; }
+dm4n (){ printf '[%6d %6d %6d %6d]\n' $(($1/$16)) $(($2/$16)) $(($3/$16)) $(($4/$16)) $(($5/$16)) $(($6/$16)) $(($7/$16)) $(($8/$16)) $(($9/$16)) $(($10/$16)) $(($11/$16)) $(($12/$16)) $(($13/$16)) $(($14/$16)) $(($15/$16)) $(($16/$16)); }
+G2  (){ printf "\x1b[$(($1+H2));$(($2+W2))H$3"; }
+COLORS=('0' '0;31' '0;32' '0;33' '0;34' '0;35' '0;36' '0;37' '1;30' '1;31' '1;32' '1;33' '1;34' '1;35' '1;36' '1;37')
+function CL { local c=$1; shift; printf "\e[${COLORS[c]}m$*"; }
+
+# draw a line right and down or down and right
+function line {
+  local x y m n d dx dy w ws nx ny yyxx e i
+  # Make sure line is drawn from left -x to right +x in the temrinal.
+  if [ $2 -le $4 ]; then
+    x=$2; y=$1; m=$4; n=$3
+  else
+    x=$4; y=$3; m=$2; n=$1
+  fi
+  # (x,y) to (m,n) will always go left to right
+  dx=$((m-x))
+  if [ $1 -lt $3 ]; then dy=$(($3-$1)); else dy=$(($1-$3)); fi
+
+  # Always walk or walk-step
+
+  if [ $dy -lt $dx ]; then # Small slope so walk left and step up or down
+    w=''
+    if [ $y -lt $n ]; then # walk right and down
+       ws=$'\v'
+    else                   # walk right and up
+       ws=$'\eM'
+    fi
+    nx=$dx
+    ny=$dy
+  else # Large slope, so walk up or down and step right
+    if [ $y -lt $n ]; then # walk down and right
+       w=$'\b\v'
+       ws=$'\v'
+    else                   # walk up and right
+       w=$'\b\eM'
+       ws=$'\eM'
+    fi
+    nx=$dy
+    ny=$dx
+  fi
+
+  G2 $y $x "$5"
+  yy=$((ny + ny))
+  yyxx=$((yy - nx - nx))
+  e=$((yy - nx))
+  i=$nx
+  while [ 0 -lt $i ]; do
+    #printf "\e7\e[1;1H[$x $y] dx=$dx dy=$dy i=$i e=$e yy=$yy yyxx=$yyxx [$m $n]\e8"
+    if [ 0 -le $e ]; then
+      printf "$ws$5"
+      e=$((e + yyxx))
+    else
+      printf "$w$5"
+      e=$((e + yy))
+    fi
+    i=$((i-1))
+  done
+}
+
+# Scan hour, min, sec.  10# forces base 10 parsing of numbers beginning with 0
+probetime (){ hour=$((10#$1 * 10)); min=$((10#$2 * 2)); sec=$((10#$3 * 2)); }
+probetime $(date +'%H %M %S')
+
+identity=(1 0 0 0  0 1 0 0   0 0 1 0  0 0 0 1)
+
+# Creates
+#
+# {cos -sin 0 0}[x]
+# {sin cos  0 0}[y]
+# { 0   0   1 0}[z]
+# { 0   0   0 1}[1]
+#
+function matRotz () { echo -n "${COSTABLE[$1%120]} $((- SINTABLE[$1%120])) 0 0 ${SINTABLE[$1%120]} ${COSTABLE[$1%120]} 0 0 0 0 120 0 0 0 0 120 "; }
+function matRoty () { echo -n "${COSTABLE[$1%120]} 0 $((- SINTABLE[$1%120])) 0 0 120 0 0 ${SINTABLE[$1%120]} 0 ${COSTABLE[$1%120]} 0 0 0 0 120 "; }
+function matRotx () { echo -n "120 0 0 0 0 ${COSTABLE[$1%120]} ${SINTABLE[$1%120]} 0 0   $((- SINTABLE[$1%120])) ${COSTABLE[$1%120]} 0 0 0 0 120 "; }
+function matScale () { echo "$1 0 0 0  0 $1 0 0  0 0 $1 0  0 0 0 1 "; }
+function matTrans () { echo "120 0 0 $(($1*120))  0 120 0 $(($2*120))  0 0 120 $(($3*120))  0 0 0 120 "; }
+
+# Give 4xN column vector [x y z 1  x y z 1  ...]
+# Pre-Multiply it by 4x$ row vector [a b c d  e f g h  i j k l  m n o p}
+#
+function matMult () {
+ m=($1); shift
+ while [ 0 -lt $# ]; do
+    echo -n "$((m[0]*$1 + m[1]*$2 + m[2]*$3 + m[3]*$4))  $((m[4]*$1 + m[5]*$2 + m[6]*$3 + m[7]*$4))  $((m[8]*$1 + m[9]*$2 + m[10]*$3 + m[11]*$4))  $((m[12]*$1 + m[13]*$2 + m[14]*$3 + m[15]*$4)) "
+    shift 4
+ done
+}
+
+function matMultXform () {
+ local m=($1); shift
+ local n=($1); shift
+ local o=();
+ while :; do
+   o[0]=$((m[0]*n[0] + m[1]*n[4] + m[2]*n[8] + m[3]*n[12]))
+    o[1]=$((m[0]*n[1] + m[1]*n[5] + m[2]*n[9] + m[3]*n[13]))
+     o[2]=$((m[0]*n[2] + m[1]*n[6] + m[2]*n[10] + m[3]*n[14]))
+      o[3]=$((m[0]*n[3] + m[1]*n[7] + m[2]*n[11] + m[3]*n[15]))
+   o[4]=$((m[4]*n[0] + m[5]*n[4] + m[6]*n[8] + m[7]*n[12]))
+    o[5]=$((m[4]*n[1] + m[5]*n[5] + m[6]*n[9] + m[7]*n[13]))
+     o[6]=$((m[4]*n[2] + m[5]*n[6] + m[6]*n[10] + m[7]*n[14]))
+      o[7]=$((m[4]*n[3] + m[5]*n[7] + m[6]*n[11] + m[7]*n[15]))
+   o[8]=$((m[8]*n[0] + m[9]*n[4] + m[10]*n[8] + m[11]*n[12]))
+    o[9]=$((m[8]*n[1] + m[9]*n[5] + m[10]*n[9] + m[11]*n[13]))
+     o[10]=$((m[8]*n[2] + m[9]*n[6] + m[10]*n[10] + m[11]*n[14]))
+      o[11]=$((m[8]*n[3] + m[9]*n[7] + m[10]*n[11] + m[11]*n[15]))
+   o[12]=$((m[12]*n[0] + m[13]*n[4] + m[14]*n[8] + m[15]*n[12]))
+    o[13]=$((m[12]*n[1] + m[13]*n[5] + m[14]*n[9] + m[15]*n[13]))
+     o[14]=$((m[12]*n[2] + m[13]*n[6] + m[14]*n[10] + m[15]*n[14]))
+      o[15]=$((m[12]*n[3] + m[13]*n[7] + m[14]*n[11] + m[15]*n[15]))
+   [ 0 -eq $# ] && break
+   m=(${o[*]})
+   n=($1); shift
+ done
+ echo ${o[*]}
+}
+
+function isFacing () {
+  local c=70
+
+  # Apply perspective
+  zz=$(($3*4/$4+c))
+  zx=$(($1*8/$4*16/zz))
+  zy=$(($2*6/$4*16/zz))
+
+  z2=$(($7*4/$8+c))
+  x2=$(($5*8/$8*16/z2))
+  y2=$(($6*6/$8*16/z2))
+
+  z3=$((${11}*4/${12}+c))
+  x3=$(($9*8/${12}*16/z3))
+  y3=$((${10}*6/${12}*16/z3))
+
+  # Check Z component of the normal of the above two vectors
+  va0=$((x2-zx))
+  va1=$((y2-zy))
+  vb0=$((x3-zx))
+  vb1=$((y3-zy))
+  [ $((va0*vb1 - va1*vb0)) -lt 0 ]
+}
+
+
+function plotLines () {
+  local ch=$1; shift  ## character to plot
+  local c=70
+  while [ 0 -lt $# ]; do
+    # Normalize
+    x=$(($1*8/$4))
+    y=$(($2*6/$4))
+    z=$(($3*4/$4+c))
+    x1=$(($5*8/$8))
+    y1=$(($6*6/$8))
+    z1=$(($7*4/$8+c))
+    lx=$((x*16/z))
+    ly=$((y*16/z))
+    lx1=$((x1*16/z1))
+    ly1=$((y1*16/z1))
+    [ 0 -lt $z ] && [ 0 -lt $z1 ] && {
+      line  $ly $lx $ly1 $lx1 "$ch"
+    }
+    shift 8
+  done
+}
+
+function plotPoly () {
+  local x y z sx sy sz lx ly lz
+  local ch=$1; shift  ## character to plot
+  local c=70
+
+   #Start point
+   x=$(($1*8/$4))
+   y=$(($2*6/$4))
+   z=$(($3*4/$4+c))
+   sx=$((x*16/z))
+   sy=$((y*16/z))
+   sz=$z
+   shift 4
+
+   #last point
+   lx=$sx
+   ly=$sy
+   lz=$sz
+
+  while [ 0 -lt $# ]; do
+    # next point
+    x=$(($1*8/$4))
+    y=$(($2*6/$4))
+    z=$(($3*4/$4+c))
+    nx=$((x*16/z))
+    ny=$((y*16/z))
+    [ 0 -lt $lz ] && [ 0 -lt $z ] && {
+      line  $ly $lx $ny $nx "$ch"
+    }
+    # last point
+    lx=$nx
+    ly=$ny
+    lz=$z
+    shift 4
+  done
+  [ 0 -lt $sz ] && [ 0 -lt $lz ] && {
+    line  $sy $sx $ly $lx "$ch"
+  }
+}
+
+function plotPoints () {
+  local x y z
+  ch=$1; shift # character to plot
+  local c=70
+  while [ 0 -lt $# ]; do
+     # Normalize
+     x=$(($1*8/$4))
+     y=$(($2*6/$4))
+     z=$(($3*4/$4+c))
+     nx=$((x*16/z))
+     ny=$((y*16/z))
+     if [ 0 -lt $z ]; then
+       G2 $ny $nx "$ch"
+     fi
+    shift 4
+  done
+}
+
+function resetAnimals {
+  animal1=$(aoctopus)
+  animal2=$(aoctopus)
+  animal3=$(aoctopus)
+}
+
+function makeHand { echo 0 -$1 0 1  0 -$2 0 1; }
+
+# makeLine mat a b c x y z
+function transformPoints {
+  mat="$1"; shift
+  matMult "$mat" $*
+}
+
+# Object descriptor and vertex stores
+glables=()
+gpoints=()
+
+# Keep track of sets of points
+function makePoints {
+  local len=${#gpoints[*]}
+  glabels=("${glabels[@]}" "$1 $2 $3 $4 $len $((len+$#-3))")
+  shift 4
+  gpoints=(${gpoints[@]} $*)
+}
+
+r=8
+facea=$(matMultXform "$(matRoty 0)"  "$(matTrans 0 0 -$r)")
+faceb=$(matMultXform "$(matRoty 30)" "$(matTrans 0 0 -$r)")
+facec=$(matMultXform "$(matRoty 60)" "$(matTrans 0 0 -$r)")
+faced=$(matMultXform "$(matRoty 90)" "$(matTrans 0 0 -$r)")
+facee=$(matMultXform "$(matRotx 30)" "$(matTrans 0 0 -$r)")
+facef=$(matMultXform "$(matRotx 90)" "$(matTrans 0 0 -$r)")
+
+box="-$r $r 0 1    $r $r 0 1    -$r -$r 0 1     $r -$r 0 1    -$r -$r 0 1    -$r $r 0 1    $r $r 0 1"
+boxa=$(transformPoints "$facea" $box)
+boxb=$(transformPoints "$faceb" $box)
+boxc=$(transformPoints "$facec" $box)
+boxd=$(transformPoints "$faced" $box)
+boxe=$(transformPoints "$facee" $box)
+boxf=$(transformPoints "$facef" $box)
+
+# Create the clock vertices
+function makeClock {
+
+  twelve="$(echo  -$r $r 0 1 $r $r 0 1 -$r -$r 0 1; makeHand 2 7)"
+  myclock="$(echo -$r $r 0 1 $r $r 0 1 -$r -$r 0 1; for s in 10 20 30 40 50 60 70 80 90 100 110; do transformPoints "$(matRotz s)" $(makeHand 2 7); done )"
+  mymin="$(echo   -$r $r 0 1 $r $r 0 1 -$r -$r 0 1; transformPoints "$(matRotz              $min)" $(makeHand 0 7))"
+  myhour="$(echo  -$r $r 0 1 $r $r 0 1 -$r -$r 0 1; transformPoints "$(matRotz  $((hour+min/12)))" $(makeHand 1 4))"
+  mysec="$(echo   -$r $r 0 1 $r $r 0 1 -$r -$r 0 1; transformPoints "$(matRotz              $sec)" $(makeHand 6 7))"
+
+  makePoints A        \# 9 y $boxa
+  makePoints twelve   \. 15 l $(transformPoints "$facea" $twelve)
+  makePoints clock    \. 8 l $(transformPoints "$facea" $myclock)
+  makePoints handmin  $animal1 6 l $(transformPoints "$facea" $mymin)
+  makePoints handhour $animal2 2 l $(transformPoints "$facea" $myhour)
+  makePoints handsec  $animal3 5 l $(transformPoints "$facea" $mysec)
+
+  makePoints B        \# 10 y $boxb
+  makePoints twelve   \. 15 l $(transformPoints "$faceb" $twelve)
+  makePoints clock    \. 8  l $(transformPoints "$faceb" $myclock)
+  makePoints handmin  $animal1 6  l $(transformPoints "$faceb" $mymin)
+  makePoints handhour $animal2 2  l $(transformPoints "$faceb" $myhour)
+  makePoints handsec  $animal3 5  l $(transformPoints "$faceb" $mysec)
+
+  makePoints C        \# 12 y $boxc
+  makePoints twelve   \. 15 l $(transformPoints "$facec" $twelve)
+  makePoints clock    \. 8  l $(transformPoints "$facec" $myclock)
+  makePoints handmin  $animal1 6  l $(transformPoints "$facec" $mymin)
+  makePoints handhour $animal2 2  l $(transformPoints "$facec" $myhour)
+  makePoints handsec  $animal3 5  l $(transformPoints "$facec" $mysec)
+
+  makePoints D        \# 14 y $boxd
+  makePoints twelve   \. 15 l $(transformPoints "$faced" $twelve)
+  makePoints clock    \. 8  l $(transformPoints "$faced" $myclock)
+  makePoints handmin  $animal1 6  l $(transformPoints "$faced" $mymin)
+  makePoints handhour $animal2 2  l $(transformPoints "$faced" $myhour)
+  makePoints handsec  $animal3 5  l $(transformPoints "$faced" $mysec)
+
+  makePoints E        \# 11 y $boxe
+  makePoints twelve   \. 15 l $(transformPoints "$facee" $twelve)
+  makePoints clock    \. 8  l $(transformPoints "$facee" $myclock)
+  makePoints handmin  $animal1 6  l $(transformPoints "$facee" $mymin)
+  makePoints handhour $animal2 2  l $(transformPoints "$facee" $myhour)
+  makePoints handsec  $animal3 5  l $(transformPoints "$facee" $mysec)
+
+  makePoints F        \# 13 y $boxf
+  makePoints twelve   \. 15 l $(transformPoints "$facef" $twelve)
+  makePoints clock    \. 8  l $(transformPoints "$facef" $myclock)
+  makePoints handmin  $animal1 6  l $(transformPoints "$facef" $mymin)
+  makePoints handhour $animal2 2  l $(transformPoints "$facef" $myhour)
+  makePoints handsec  $animal3 5  l $(transformPoints "$facef" $mysec)
+}
+
+# Render each object
+function plotGpoints {
+  for l in "${glabels[@]}"; do
+    read n c k t a b <<<$l
+    if isFacing $(matMult "${gm[*]}" ${gpoints[*]:$a:12}); then
+      CL $k
+      case $t in 
+       (y) plotPoly   "$c" $(matMult "${gm[*]}" ${gpoints[*]:$a+12:$b-$a-1-12}) ;;
+       (l) plotLines  "$c" $(matMult "${gm[*]}" ${gpoints[*]:$a+12:$b-$a-1-12}) ;;
+       (p) plotPoints "$c" $(matMult "${gm[*]}" ${gpoints[*]:$a+12:$b-$a-1-12}) ;;
+      esac
+    fi
+  done
+}
+
+gtick=0 # Final plotting scale
+
+# Global transformation matrix
+gm=()
+
+renderclock () {
+  read H W <<<$(stty size)
+  H2=$((H/2))
+  W2=$((W/2))
+  if [ $sec == 0 ] || [ $# == 1 ];then resetAnimals; fi
+  glabels=()
+  gpoints=()
+  makeClock
+  gm=($(matMultXform "$(matRotx $((gtick/2)))" "$(matRoty $gtick)"))
+  P $(
+    P $CSI 2J
+    plotGpoints
+  )
+}
+
+main () {
+  P $CSI?25l # Disable cursor
+  resetAnimals
+  trap 'renderclock i' SIGWINCH
+  case $1 in
+  (a)
+  while [ ! -e k ]; do
+    if [ "$currentTick" != $(date +%s) ]; then
+      probetime $(date +'%H %M %S')
+      renderclock
+      currentTick=$(date +%s)
+    fi
+    sleep .9
+  done
+  ;;
+  (b)
+  while :; do
+    gtick=$((gtick+1))
+    #probetime $(date -r $gtick +'%H %M %S')
+    probetime $(date +'%H %M %S')
+    renderclock
+  done
+  ;;
+  esac
+}
+
+mainFast () {
+  P $CSI?25l # Disable cursor
+  resetAnimals
+  trap 'renderclock i' SIGWINCH
+  while :; do 
+    probetime $(date -r $gtick +'%H %M %S')
+    renderclock
+  done
+}
+
+main b
