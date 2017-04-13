@@ -22,16 +22,25 @@ COSTABLE=(120 120 119 119 117 116 114 112 110 107 104 101 97 93 89 85 80 75 70 6
 function hex { printf %x $1; }
 function aoctopus { printf "\xf0\x9f\x90\x${1:-$(hex $((128+RANDOM%64)))}"; }
 
-P   (){ printf %s $@ ; }
-dv  (){ while [ 0 -lt $# ]; do printf '[%6d %6d %6d %6d]\n' $1 $2 $3 $4; shift 4; done; }
+P    (){ printf %s $@ ; }
+dv   (){ while [ 0 -lt $# ]; do printf '[%6d %6d %6d %6d]\n' $1 $2 $3 $4; shift 4; done; }
 dvn  (){ while [ 0 -lt $# ]; do printf '[%6d %6d %6d %6d | %6d]\n' $(($1/$4)) $(($2/$4)) $(($3/$4)) $(($4/$4)) $4; shift 4; done; }
-dm4 (){ printf '[%6d %6d %6d %6d]\n' $1 $2 $3 $4 $5 $6 $7 $8 $9 ${10} ${11} ${12} ${13} ${14} ${15} ${16}; }
+dm4  (){ printf '[%6d %6d %6d %6d]\n' $1 $2 $3 $4 $5 $6 $7 $8 $9 ${10} ${11} ${12} ${13} ${14} ${15} ${16}; }
 dm4n (){ printf '[%6d %6d %6d %6d]\n' $(($1/$16)) $(($2/$16)) $(($3/$16)) $(($4/$16)) $(($5/$16)) $(($6/$16)) $(($7/$16)) $(($8/$16)) $(($9/$16)) $(($10/$16)) $(($11/$16)) $(($12/$16)) $(($13/$16)) $(($14/$16)) $(($15/$16)) $(($16/$16)); }
-G2  (){ printf "\x1b[$(($1+H2));$(($2+W2))H$3"; }
+G2   (){ printf "\x1b[$(($1+H2));$(($2+W2))H$3"; }
 COLORS=('0' '0;31' '0;32' '0;33' '0;34' '0;35' '0;36' '0;37' '1;30' '1;31' '1;32' '1;33' '1;34' '1;35' '1;36' '1;37')
 function CL { local c=$1; shift; printf "\e[${COLORS[c]}m$*"; }
 
 # draw a line right and down or down and right
+function inscreen { # x y
+  local x=$(($1+W2))
+  local y=$(($2+H2))
+  if [ $x -lt 1 ] || [ $y -lt 1 ] || [ $W -lt $x ] || [ $H -lt $y ]; then
+    return 1
+  fi
+  return 0
+}
+
 function line {
   local x y m n d dx dy w ws nx ny yyxx e i
   # Make sure line is drawn from left -x to right +x in the temrinal.
@@ -47,38 +56,54 @@ function line {
   # Always walk or walk-step
 
   if [ $dy -lt $dx ]; then # Small slope so walk left and step up or down
-    w=''
+    w=''; xwi=1;  ywi=0
     if [ $y -lt $n ]; then # walk right and down
-       ws=$'\v'
+       ws=$'\v'; xwsi=1; ywsi=1
     else                   # walk right and up
-       ws=$'\eM'
+       ws=$'\eM'; xwsi=1; ywsi=-1
     fi
     nx=$dx
     ny=$dy
   else # Large slope, so walk up or down and step right
     if [ $y -lt $n ]; then # walk down and right
-       w=$'\b\v'
-       ws=$'\v'
+       w=$'\b\v'; xwi=0; ywi=1
+       ws=$'\v'; xwsi=1; ywsi=1
     else                   # walk up and right
-       w=$'\b\eM'
-       ws=$'\eM'
+       w=$'\b\eM'; xwi=0; ywi=-1
+       ws=$'\eM'; xwsi=1; ywsi=-1
     fi
     nx=$dy
     ny=$dx
   fi
 
-  G2 $y $x "$5"
+  # Valid state when drawing lines on the terminal
+  #  0 = out
+  #  1 = in
+  state=0
+
   yy=$((ny + ny))
   yyxx=$((yy - nx - nx))
   e=$((yy - nx))
   i=$nx
+
   while [ 0 -lt $i ]; do
-    #printf "\e7\e[1;1H[$x $y] dx=$dx dy=$dy i=$i e=$e yy=$yy yyxx=$yyxx [$m $n]\e8"
     if [ 0 -le $e ]; then
-      printf "$ws$5"
+      if [ $state == 1 ]; then
+        inscreen $x $y || return 0 # done if out of screen
+        printf "$ws$5"
+      else # state == 0
+        inscreen $x $y && G2 $y $x "$5"
+      fi
+      x=$((x+xwsi)); y=$((y+ywsi))
       e=$((e + yyxx))
     else
-      printf "$w$5"
+      if [ $state == 1 ]; then
+        inscreen $x $y || return 0 # done if out of screen
+        printf "$w$5"
+      else # state == 0
+        inscreen $x $y && G2 $y $x "$5"
+      fi
+      x=$((x+xwi)); y=$((y+ywi))
       e=$((e + yy))
     fi
     i=$((i-1))
@@ -101,8 +126,15 @@ identity=(1 0 0 0  0 1 0 0   0 0 1 0  0 0 0 1)
 function matRotz () { echo -n "${COSTABLE[$1%120]} $((- SINTABLE[$1%120])) 0 0 ${SINTABLE[$1%120]} ${COSTABLE[$1%120]} 0 0 0 0 120 0 0 0 0 120 "; }
 function matRoty () { echo -n "${COSTABLE[$1%120]} 0 $((- SINTABLE[$1%120])) 0 0 120 0 0 ${SINTABLE[$1%120]} 0 ${COSTABLE[$1%120]} 0 0 0 0 120 "; }
 function matRotx () { echo -n "120 0 0 0 0 ${COSTABLE[$1%120]} ${SINTABLE[$1%120]} 0 0   $((- SINTABLE[$1%120])) ${COSTABLE[$1%120]} 0 0 0 0 120 "; }
-function matScale () { echo "$1 0 0 0  0 $1 0 0  0 0 $1 0  0 0 0 1 "; }
-function matTrans () { echo "120 0 0 $(($1*120))  0 120 0 $(($2*120))  0 0 120 $(($3*120))  0 0 0 120 "; }
+function matScale () { echo "$1 0 0 0  0 $2 0 0  0 0 $3 0  0 0 0 1 "; }
+function matTrans () { echo "1 0 0 $1  0 1 0 $2  0 0 1 $3  0 0 0 1 "; }
+#
+# Hmm
+#
+# Perspective transformation for x is x/z
+# But rotation matrices are multiplied by a scalar 120
+#
+function matPerspective () { echo "1000 0 0 0  0 1000 0 0  0 0 1000 0  0 0 $((1000/$1)) 1000 "; }
 
 # Give 4xN column vector [x y z 1  x y z 1  ...]
 # Pre-Multiply it by 4x$ row vector [a b c d  e f g h  i j k l  m n o p}
@@ -144,20 +176,19 @@ function matMultXform () {
 }
 
 function isFacing () {
-  local c=70
 
   # Apply perspective
-  zz=$(($3*4/$4+c))
-  zx=$(($1*8/$4*16/zz))
-  zy=$(($2*6/$4*16/zz))
+  zz=$(($3/$4))
+  zx=$(($1/$4))
+  zy=$(($2/$4))
 
-  z2=$(($7*4/$8+c))
-  x2=$(($5*8/$8*16/z2))
-  y2=$(($6*6/$8*16/z2))
+  z2=$(($7/$8))
+  x2=$(($5/$8))
+  y2=$(($6/$8))
 
-  z3=$((${11}*4/${12}+c))
-  x3=$(($9*8/${12}*16/z3))
-  y3=$((${10}*6/${12}*16/z3))
+  z3=$((${11}/${12}))
+  x3=$(($9/${12}))
+  y3=$((${10}/${12}))
 
   # Check Z component of the normal of the above two vectors
   va0=$((x2-zx))
@@ -170,21 +201,18 @@ function isFacing () {
 
 function plotLines () {
   local ch=$1; shift  ## character to plot
-  local c=70
   while [ 0 -lt $# ]; do
     # Normalize
-    x=$(($1*8/$4))
-    y=$(($2*6/$4))
-    z=$(($3*4/$4+c))
-    x1=$(($5*8/$8))
-    y1=$(($6*6/$8))
-    z1=$(($7*4/$8+c))
-    lx=$((x*16/z))
-    ly=$((y*16/z))
-    lx1=$((x1*16/z1))
-    ly1=$((y1*16/z1))
+    x=$(($1/$4))
+    y=$(($2/$4))
+    z=$(($3/$4))
+
+    x1=$(($5/$8))
+    y1=$(($6/$8))
+    z1=$(($7/$8))
+
     [ 0 -lt $z ] && [ 0 -lt $z1 ] && {
-      line  $ly $lx $ly1 $lx1 "$ch"
+      line  $y $x $y1 $x1 "$ch"
     }
     shift 8
   done
@@ -193,56 +221,50 @@ function plotLines () {
 function plotPoly () {
   local x y z sx sy sz lx ly lz
   local ch=$1; shift  ## character to plot
-  local c=70
 
    #Start point
-   x=$(($1*8/$4))
-   y=$(($2*6/$4))
-   z=$(($3*4/$4+c))
-   sx=$((x*16/z))
-   sy=$((y*16/z))
-   sz=$z
+   x=$(($1/$4))
+   y=$(($2/$4))
+   z=$(($3/$4))
    shift 4
 
-   #last point
-   lx=$sx
-   ly=$sy
-   lz=$sz
+   sx=$x
+   sy=$y # remember this as last point
+   sz=$z
+
+   lx=$x
+   ly=$y # last coordinate
+   lz=$z
 
   while [ 0 -lt $# ]; do
-    # next point
-    x=$(($1*8/$4))
-    y=$(($2*6/$4))
-    z=$(($3*4/$4+c))
-    nx=$((x*16/z))
-    ny=$((y*16/z))
+    x=$(($1/$4))
+    y=$(($2/$4)) # next point
+    z=$(($3/$4))
+
     [ 0 -lt $lz ] && [ 0 -lt $z ] && {
-      line  $ly $lx $ny $nx "$ch"
+      line  $ly $lx $y $x "$ch"
     }
-    # last point
-    lx=$nx
-    ly=$ny
+    lx=$x
+    ly=$y # last point
     lz=$z
+
     shift 4
   done
   [ 0 -lt $sz ] && [ 0 -lt $lz ] && {
-    line  $sy $sx $ly $lx "$ch"
+    line $ly $lx $sy $sx "$ch"
   }
 }
 
 function plotPoints () {
   local x y z ch i=0 ary="NOMINUM"
   ch=$1; shift # character to plot
-  local c=70
   while [ 0 -lt $# ]; do
      # Normalize
-     x=$(($1*8/$4))
-     y=$(($2*6/$4))
-     z=$(($3*4/$4+c))
-     nx=$((x*16/z))
-     ny=$((y*16/z))
+     x=$(($1/$4))
+     y=$(($2/$4))
+     z=$(($3/$4))
      if [ 0 -lt $z ]; then
-       G2 $ny $nx ${ary:i:1}
+       G2 $y $x ${ary:i:1}
        i=$((i+1))
        [ $i -lt ${#ary} ] || i=0
      fi
@@ -257,7 +279,6 @@ function resetAnimals {
 }
 resetAnimals
 
-function makeHand { echo 0 -$1 0 1  0 -$2 0 1; }
 
 # makeLine mat a b c x y z
 function transformPoints {
@@ -269,6 +290,8 @@ function transformPoints {
 glables=()
 gpoints=()
 
+r=20
+
 # Keep track of sets of points
 function makePoints {
   local len=${#gpoints[*]}
@@ -277,7 +300,8 @@ function makePoints {
   gpoints=(${gpoints[@]} $*)
 }
 
-r=8
+function makeHand { echo 0 $((-$1*r/10)) 0 1  0 $((-$2*r/10)) 0 1; }
+
 basis="-$r $r 0 1  $r $r 0 1  -$r -$r 0 1"
 facea=$(matMultXform "$(matRoty 0)"  "$(matTrans 0 0 -$r)")
 faceb=$(matMultXform "$(matRoty 30)" "$(matTrans 0 0 -$r)")
@@ -347,7 +371,7 @@ function makeClock {
 }
 
 function makePlane {
-  d=1
+  d=8
   y=$((-r/d))
   while [ $y -le $((r/d)) ]; do
     x=$((-r/d))
@@ -396,6 +420,7 @@ function plotGpoints {
     count=$((count-1))
   done
   )
+  # Compute and display FPS
   frame=$((frame+1))
   ps=$((100*frame/($(date +%s)-startTime)))
   CL 8; P $CSI H $((ps/100)) . $((ps%100))
@@ -408,18 +433,21 @@ gtick=0 # Final plotting scale
 
   glabels=()
   gpoints=()
-  makeClock
   #makeMap
+  makeClock
+
+perspective=$(matMultXform "$(matPerspective 30)" "$(matTrans 0 0 70)" "$(matScale 2 2 2)")
 
 renderclock () {
   read H W <<<$(stty size)
   H2=$((H/2))
   W2=$((W/2))
   if [ $sec == 0 ] || [ $# == 1 ];then resetAnimals; fi
-  gm=($(matMultXform "$(matRotx $((gtick/3)))" "$(matRoty $gtick)"))
-  #gm=$(matRotz $((gtick)))
+  gm=($(matMultXform "$perspective" "$(matRotx $((gtick/3)))" "$(matRoty $gtick)"))
   plotGpoints
 }
+
+
 
 main () {
   P $CSI?25l # Disable cursor
@@ -438,15 +466,17 @@ main () {
   ;;
   (b)
   while :; do
-  #for a in {1..30}; do 
-    gtick=$((gtick+1))
+  #for a in {1..90}; do 
     #probetime $(date -r $gtick +'%H %M %S')
     probetime $(date +'%H %M %S')
     renderclock
+    gtick=$((gtick+1))
   done
   ;;
   esac
 }
+
+#trap '' SIGINFO
 
 mainFast () {
   P $CSI?25l # Disable cursor
