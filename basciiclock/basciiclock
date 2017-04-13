@@ -231,7 +231,7 @@ function plotPoly () {
 }
 
 function plotPoints () {
-  local x y z
+  local x y z ch i=0 ary="NOMINUM"
   ch=$1; shift # character to plot
   local c=70
   while [ 0 -lt $# ]; do
@@ -242,7 +242,9 @@ function plotPoints () {
      nx=$((x*16/z))
      ny=$((y*16/z))
      if [ 0 -lt $z ]; then
-       G2 $ny $nx "$ch"
+       G2 $ny $nx ${ary:i:1}
+       i=$((i+1))
+       [ $i -lt ${#ary} ] || i=0
      fi
     shift 4
   done
@@ -253,6 +255,7 @@ function resetAnimals {
   animal2=$(aoctopus)
   animal3=$(aoctopus)
 }
+resetAnimals
 
 function makeHand { echo 0 -$1 0 1  0 -$2 0 1; }
 
@@ -269,12 +272,13 @@ gpoints=()
 # Keep track of sets of points
 function makePoints {
   local len=${#gpoints[*]}
-  glabels=("${glabels[@]}" "$1 $2 $3 $4 $len $((len+$#-3))")
+  glabels=("${glabels[@]}" "$1 $2 $3 $4 $len $((len+$#-4))")
   shift 4
   gpoints=(${gpoints[@]} $*)
 }
 
 r=8
+basis="-$r $r 0 1  $r $r 0 1  -$r -$r 0 1"
 facea=$(matMultXform "$(matRoty 0)"  "$(matTrans 0 0 -$r)")
 faceb=$(matMultXform "$(matRoty 30)" "$(matTrans 0 0 -$r)")
 facec=$(matMultXform "$(matRoty 60)" "$(matTrans 0 0 -$r)")
@@ -293,88 +297,128 @@ boxf=$(transformPoints "$facef" $box)
 # Create the clock vertices
 function makeClock {
 
-  twelve="$(echo  -$r $r 0 1 $r $r 0 1 -$r -$r 0 1; makeHand 2 7)"
-  myclock="$(echo -$r $r 0 1 $r $r 0 1 -$r -$r 0 1; for s in 10 20 30 40 50 60 70 80 90 100 110; do transformPoints "$(matRotz s)" $(makeHand 2 7); done )"
-  mymin="$(echo   -$r $r 0 1 $r $r 0 1 -$r -$r 0 1; transformPoints "$(matRotz              $min)" $(makeHand 0 7))"
-  myhour="$(echo  -$r $r 0 1 $r $r 0 1 -$r -$r 0 1; transformPoints "$(matRotz  $((hour+min/12)))" $(makeHand 1 4))"
-  mysec="$(echo   -$r $r 0 1 $r $r 0 1 -$r -$r 0 1; transformPoints "$(matRotz              $sec)" $(makeHand 6 7))"
+  twelve="$(echo  $basis; makeHand 2 7)"
+  myclock="$(echo $basis; for s in 10 20 30 40 50 60 70 80 90 100 110; do transformPoints "$(matRotz s)" $(makeHand 2 7); done )"
+  mymin="$(echo   $basis; transformPoints "$(matRotz              $min)" $(makeHand 0 7))"
+  myhour="$(echo  $basis; transformPoints "$(matRotz  $((hour+min/12)))" $(makeHand 2 4))"
+  mysec="$(echo   $basis; transformPoints "$(matRotz              $sec)" $(makeHand 6 7))"
 
   makePoints A        \# 9 y $boxa
   makePoints twelve   \. 15 l $(transformPoints "$facea" $twelve)
-  makePoints clock    \. 8 l $(transformPoints "$facea" $myclock)
   makePoints handmin  $animal1 6 l $(transformPoints "$facea" $mymin)
   makePoints handhour $animal2 2 l $(transformPoints "$facea" $myhour)
   makePoints handsec  $animal3 5 l $(transformPoints "$facea" $mysec)
+  makePoints clock    \. 8 l  $(transformPoints "$facea" $myclock)
 
   makePoints B        \# 10 y $boxb
   makePoints twelve   \. 15 l $(transformPoints "$faceb" $twelve)
-  makePoints clock    \. 8  l $(transformPoints "$faceb" $myclock)
   makePoints handmin  $animal1 6  l $(transformPoints "$faceb" $mymin)
   makePoints handhour $animal2 2  l $(transformPoints "$faceb" $myhour)
   makePoints handsec  $animal3 5  l $(transformPoints "$faceb" $mysec)
+  makePoints clock    \. 8  l $(transformPoints "$faceb" $myclock)
 
   makePoints C        \# 12 y $boxc
   makePoints twelve   \. 15 l $(transformPoints "$facec" $twelve)
-  makePoints clock    \. 8  l $(transformPoints "$facec" $myclock)
   makePoints handmin  $animal1 6  l $(transformPoints "$facec" $mymin)
   makePoints handhour $animal2 2  l $(transformPoints "$facec" $myhour)
   makePoints handsec  $animal3 5  l $(transformPoints "$facec" $mysec)
+  makePoints clock    \. 8  l $(transformPoints "$facec" $myclock)
 
   makePoints D        \# 14 y $boxd
   makePoints twelve   \. 15 l $(transformPoints "$faced" $twelve)
-  makePoints clock    \. 8  l $(transformPoints "$faced" $myclock)
   makePoints handmin  $animal1 6  l $(transformPoints "$faced" $mymin)
   makePoints handhour $animal2 2  l $(transformPoints "$faced" $myhour)
   makePoints handsec  $animal3 5  l $(transformPoints "$faced" $mysec)
+  makePoints clock    \. 8  l $(transformPoints "$faced" $myclock)
 
   makePoints E        \# 11 y $boxe
   makePoints twelve   \. 15 l $(transformPoints "$facee" $twelve)
-  makePoints clock    \. 8  l $(transformPoints "$facee" $myclock)
   makePoints handmin  $animal1 6  l $(transformPoints "$facee" $mymin)
   makePoints handhour $animal2 2  l $(transformPoints "$facee" $myhour)
   makePoints handsec  $animal3 5  l $(transformPoints "$facee" $mysec)
+  makePoints clock    \. 8  l $(transformPoints "$facee" $myclock)
 
   makePoints F        \# 13 y $boxf
   makePoints twelve   \. 15 l $(transformPoints "$facef" $twelve)
-  makePoints clock    \. 8  l $(transformPoints "$facef" $myclock)
   makePoints handmin  $animal1 6  l $(transformPoints "$facef" $mymin)
   makePoints handhour $animal2 2  l $(transformPoints "$facef" $myhour)
   makePoints handsec  $animal3 5  l $(transformPoints "$facef" $mysec)
+  makePoints clock    \. 8  l $(transformPoints "$facef" $myclock)
+}
+
+function makePlane {
+  d=1
+  y=$((-r/d))
+  while [ $y -le $((r/d)) ]; do
+    x=$((-r/d))
+    while [ $x -le $((r/d)) ]; do
+      echo -n "$((d*x)) $((d*y)) 0 1 "
+      x=$((x+1))
+    done
+    y=$((y+1))
+  done
+}
+
+function makeMap {
+  makePoints A a 4 p $(transformPoints "$facea" $basis $(makePlane))
+  makePoints B b 5 p $(transformPoints "$faceb" $basis $(makePlane))
+  makePoints C c 6 p $(transformPoints "$facec" $basis $(makePlane))
+  makePoints D d 7 p $(transformPoints "$faced" $basis $(makePlane))
+  makePoints E e 3 p $(transformPoints "$facee" $basis $(makePlane))
+  makePoints F f 2 p $(transformPoints "$facef" $basis $(makePlane))
 }
 
 # Render each object
+frame=0
+startTime=$(date +%s); sleep 1
 function plotGpoints {
+  local count=0
   for l in "${glabels[@]}"; do
     read n c k t a b <<<$l
     if isFacing $(matMult "${gm[*]}" ${gpoints[*]:$a:12}); then
-      CL $k
-      case $t in 
-       (y) plotPoly   "$c" $(matMult "${gm[*]}" ${gpoints[*]:$a+12:$b-$a-1-12}) ;;
-       (l) plotLines  "$c" $(matMult "${gm[*]}" ${gpoints[*]:$a+12:$b-$a-1-12}) ;;
-       (p) plotPoints "$c" $(matMult "${gm[*]}" ${gpoints[*]:$a+12:$b-$a-1-12}) ;;
-      esac
+      count=$((count+1))
+      {
+        CL $k
+        case $t in 
+         (y) plotPoly   "$c" $(matMult "${gm[*]}" ${gpoints[*]:$a+12:$b-$a-12})  ;;
+         (l) plotLines  "$c" $(matMult "${gm[*]}" ${gpoints[*]:$a+12:$b-$a-12})  ;;
+         (p) plotPoints "$c" $(matMult "${gm[*]}" ${gpoints[*]:$a+12:$b-$a-12})  ;;
+        esac
+      } >$count &
     fi
   done
+  wait
+  P $(
+    P $CSI 2J
+    while [ 0 -lt $count ]; do
+    cat $count
+    rm $count
+    count=$((count-1))
+  done
+  )
+  frame=$((frame+1))
+  ps=$((100*frame/($(date +%s)-startTime)))
+  CL 8; P $CSI H $((ps/100)) . $((ps%100))
 }
 
 gtick=0 # Final plotting scale
 
 # Global transformation matrix
-gm=()
+#gm=()
+
+  glabels=()
+  gpoints=()
+  makeClock
+  #makeMap
 
 renderclock () {
   read H W <<<$(stty size)
   H2=$((H/2))
   W2=$((W/2))
   if [ $sec == 0 ] || [ $# == 1 ];then resetAnimals; fi
-  glabels=()
-  gpoints=()
-  makeClock
-  gm=($(matMultXform "$(matRotx $((gtick/2)))" "$(matRoty $gtick)"))
-  P $(
-    P $CSI 2J
-    plotGpoints
-  )
+  gm=($(matMultXform "$(matRotx $((gtick/3)))" "$(matRoty $gtick)"))
+  #gm=$(matRotz $((gtick)))
+  plotGpoints
 }
 
 main () {
@@ -394,6 +438,7 @@ main () {
   ;;
   (b)
   while :; do
+  #for a in {1..30}; do 
     gtick=$((gtick+1))
     #probetime $(date -r $gtick +'%H %M %S')
     probetime $(date +'%H %M %S')
@@ -407,10 +452,10 @@ mainFast () {
   P $CSI?25l # Disable cursor
   resetAnimals
   trap 'renderclock i' SIGWINCH
-  while :; do 
+  for a in {1..30}; do 
     probetime $(date -r $gtick +'%H %M %S')
     renderclock
   done
 }
 
-main b
+time main b
