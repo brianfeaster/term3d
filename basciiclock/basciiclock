@@ -1,21 +1,26 @@
 #!/bin/bash
 
+##
+## Poor man's console 3d lib
+##
+
+# Concepts:
 #
-# Poor man's console 3d lib
-# Concepts
-#  * Everything's an array
-#  * Everything's fixed point because bash math is stupid
+#  * Vectors and matrices are just bash arrays and passed by value as individual args or quoted args.
+#  * Everything's fixed point because bash math has no floating math support.
 #  * Unit circle radius=120
 #  * Radian SINTABLE 120 in size
-#  * Presume -Z extends behind screen
+#  * Presume +Z extends beyond screen away from viewer.
+#
 # Notes:
-#  Although you can pass an array as a symbolic reference to a function as ary[@] then
+#
+#  Although you can pass an array as a symbolic reference to a function as 'ary[@]' then
 #  copy it locally with myary=(${!1}), it's faster just to pass the array around
-#  as an expanded list of values "${ary[*]}" and copied locally with myary=($1).
-#  It's even faster to pass the array as arguments to the function then consuming
-#  with shift.
+#  as an expanded list of values "${ary[*]}" and copied locally with myary=($1) or just
+#  used directly and consumed along with shift which seems to be the fastest.
 
 CSI=$'\e['
+
 SINTABLE=(0 6 12 18 25 31 37 43 49 54 60 65 70 75 80 85 89 93 97 101 104 107 110 112 114 116 117 119 119 120 120 120 119 119 117 116 114 112 110 107 104 101 97 93 89 85 80 75 70 65 60 54 49 43 37 31 25 18 12 6 0 -6 -12 -18 -25 -31 -37 -43 -49 -54 -60 -65 -70 -75 -80 -85 -89 -93 -97 -101 -104 -107 -110 -112 -114 -116 -117 -119 -119 -120 -120 -120 -119 -119 -117 -116 -114 -112 -110 -107 -104 -101 -97 -93 -89 -85 -80 -75 -70 -65 -60 -54 -49 -43 -37 -31 -25 -18 -12 -6)
 COSTABLE=(120 120 119 119 117 116 114 112 110 107 104 101 97 93 89 85 80 75 70 65 60 54 49 43 37 31 25 18 12 6 0 -6 -12 -18 -25 -31 -37 -43 -49 -54 -60 -65 -70 -75 -80 -85 -89 -93 -97 -101 -104 -107 -110 -112 -114 -116 -117 -119 -119 -120 -120 -120 -119 -119 -117 -116 -114 -112 -110 -107 -104 -101 -97 -93 -89 -85 -80 -75 -70 -65 -60 -54 -49 -43 -37 -31 -25 -18 -12 -6 0 6 12 18 25 31 37 43 49 54 60 65 70 75 80 85 89 93 97 101 104 107 110 112 114 116 117 119 119 120)
 
