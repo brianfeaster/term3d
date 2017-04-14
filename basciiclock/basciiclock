@@ -300,162 +300,177 @@ function makePoints {
   gpoints=(${gpoints[@]} $*)
 }
 
-function makeHand { echo 0 $((-$1*r/10)) 0 1  0 $((-$2*r/10)) 0 1; }
+# These three non-displayed points define two vectors that
+# are used to compute the "is facing us" normal vector.
+normalBasis="-$r $r 0 1  $r $r 0 1  -$r -$r 0 1"
 
-basis="-$r $r 0 1  $r $r 0 1  -$r -$r 0 1"
-facea=$(matMultXform "$(matRoty 0)"  "$(matTrans 0 0 -$r)")
-faceb=$(matMultXform "$(matRoty 30)" "$(matTrans 0 0 -$r)")
-facec=$(matMultXform "$(matRoty 60)" "$(matTrans 0 0 -$r)")
-faced=$(matMultXform "$(matRoty 90)" "$(matTrans 0 0 -$r)")
-facee=$(matMultXform "$(matRotx 30)" "$(matTrans 0 0 -$r)")
-facef=$(matMultXform "$(matRotx 90)" "$(matTrans 0 0 -$r)")
 
-box="-$r $r 0 1    $r $r 0 1    -$r -$r 0 1     $r -$r 0 1    -$r -$r 0 1    -$r $r 0 1    $r $r 0 1"
-boxa=$(transformPoints "$facea" $box)
-boxb=$(transformPoints "$faceb" $box)
-boxc=$(transformPoints "$facec" $box)
-boxd=$(transformPoints "$faced" $box)
-boxe=$(transformPoints "$facee" $box)
-boxf=$(transformPoints "$facef" $box)
+# Transformation matrices that orient a face to either of the 6 cube faces.
+matrixCubeFacea=$(matMultXform "$(matRoty 0)"  "$(matTrans 0 0 -$r)")
+matrixCubeFaceb=$(matMultXform "$(matRoty 30)" "$(matTrans 0 0 -$r)")
+matrixCubeFacec=$(matMultXform "$(matRoty 60)" "$(matTrans 0 0 -$r)")
+matrixCubeFaced=$(matMultXform "$(matRoty 90)" "$(matTrans 0 0 -$r)")
+matrixCubeFacee=$(matMultXform "$(matRotx 30)" "$(matTrans 0 0 -$r)")
+matrixCubeFacef=$(matMultXform "$(matRotx 90)" "$(matTrans 0 0 -$r)")
 
-# Create the clock vertices
-function makeClock {
+box="$normalBasis   $r -$r 0 1    -$r -$r 0 1    -$r $r 0 1    $r $r 0 1"
 
-  twelve="$(echo  $basis; makeHand 2 7)"
-  myclock="$(echo $basis; for s in 10 20 30 40 50 60 70 80 90 100 110; do transformPoints "$(matRotz s)" $(makeHand 2 7); done )"
-  mymin="$(echo   $basis; transformPoints "$(matRotz              $min)" $(makeHand 0 7))"
-  myhour="$(echo  $basis; transformPoints "$(matRotz  $((hour+min/12)))" $(makeHand 2 4))"
-  mysec="$(echo   $basis; transformPoints "$(matRotz              $sec)" $(makeHand 6 7))"
+boxa=$(transformPoints "$matrixCubeFacea" $box)
+boxb=$(transformPoints "$matrixCubeFaceb" $box)
+boxc=$(transformPoints "$matrixCubeFacec" $box)
+boxd=$(transformPoints "$matrixCubeFaced" $box)
+boxe=$(transformPoints "$matrixCubeFacee" $box)
+boxf=$(transformPoints "$matrixCubeFacef" $box)
+
+
+
+function buildClockCube {
+  function makeHand { echo 0 $((-$1*r/10)) 0 1  0 $((-$2*r/10)) 0 1; }
+  twelve="$(echo  $normalBasis; makeHand 2 7)"
+  myclock="$(echo $normalBasis; for s in 10 20 30 40 50 60 70 80 90 100 110; do transformPoints "$(matRotz s)" $(makeHand 2 7); done )"
+  mymin="$(echo   $normalBasis; transformPoints "$(matRotz              $min)" $(makeHand 0 7))"
+  myhour="$(echo  $normalBasis; transformPoints "$(matRotz  $((hour+min/12)))" $(makeHand 2 4))"
+  mysec="$(echo   $normalBasis; transformPoints "$(matRotz              $sec)" $(makeHand 6 7))"
 
   makePoints A        \# 9 y $boxa
-  makePoints twelve   \. 15 l $(transformPoints "$facea" $twelve)
-  makePoints handmin  $animal1 6 l $(transformPoints "$facea" $mymin)
-  makePoints handhour $animal2 2 l $(transformPoints "$facea" $myhour)
-  makePoints handsec  $animal3 5 l $(transformPoints "$facea" $mysec)
-  makePoints clock    \. 8 l  $(transformPoints "$facea" $myclock)
+  makePoints clock    \. 8 l  $(transformPoints "$matrixCubeFacea" $myclock)
+  makePoints twelve   \. 15 l $(transformPoints "$matrixCubeFacea" $twelve)
+  makePoints handmin  $animal1 6 l $(transformPoints "$matrixCubeFacea" $mymin)
+  makePoints handhour $animal2 2 l $(transformPoints "$matrixCubeFacea" $myhour)
+  makePoints handsec  $animal3 5 l $(transformPoints "$matrixCubeFacea" $mysec)
 
   makePoints B        \# 10 y $boxb
-  makePoints twelve   \. 15 l $(transformPoints "$faceb" $twelve)
-  makePoints handmin  $animal1 6  l $(transformPoints "$faceb" $mymin)
-  makePoints handhour $animal2 2  l $(transformPoints "$faceb" $myhour)
-  makePoints handsec  $animal3 5  l $(transformPoints "$faceb" $mysec)
-  makePoints clock    \. 8  l $(transformPoints "$faceb" $myclock)
+  makePoints clock    \. 8  l $(transformPoints "$matrixCubeFaceb" $myclock)
+  makePoints twelve   \. 15 l $(transformPoints "$matrixCubeFaceb" $twelve)
+  makePoints handmin  $animal1 6  l $(transformPoints "$matrixCubeFaceb" $mymin)
+  makePoints handhour $animal2 2  l $(transformPoints "$matrixCubeFaceb" $myhour)
+  makePoints handsec  $animal3 5  l $(transformPoints "$matrixCubeFaceb" $mysec)
 
   makePoints C        \# 12 y $boxc
-  makePoints twelve   \. 15 l $(transformPoints "$facec" $twelve)
-  makePoints handmin  $animal1 6  l $(transformPoints "$facec" $mymin)
-  makePoints handhour $animal2 2  l $(transformPoints "$facec" $myhour)
-  makePoints handsec  $animal3 5  l $(transformPoints "$facec" $mysec)
-  makePoints clock    \. 8  l $(transformPoints "$facec" $myclock)
+  makePoints clock    \. 8  l $(transformPoints "$matrixCubeFacec" $myclock)
+  makePoints twelve   \. 15 l $(transformPoints "$matrixCubeFacec" $twelve)
+  makePoints handmin  $animal1 6  l $(transformPoints "$matrixCubeFacec" $mymin)
+  makePoints handhour $animal2 2  l $(transformPoints "$matrixCubeFacec" $myhour)
+  makePoints handsec  $animal3 5  l $(transformPoints "$matrixCubeFacec" $mysec)
 
   makePoints D        \# 14 y $boxd
-  makePoints twelve   \. 15 l $(transformPoints "$faced" $twelve)
-  makePoints handmin  $animal1 6  l $(transformPoints "$faced" $mymin)
-  makePoints handhour $animal2 2  l $(transformPoints "$faced" $myhour)
-  makePoints handsec  $animal3 5  l $(transformPoints "$faced" $mysec)
-  makePoints clock    \. 8  l $(transformPoints "$faced" $myclock)
+  makePoints clock    \. 8  l $(transformPoints "$matrixCubeFaced" $myclock)
+  makePoints twelve   \. 15 l $(transformPoints "$matrixCubeFaced" $twelve)
+  makePoints handmin  $animal1 6  l $(transformPoints "$matrixCubeFaced" $mymin)
+  makePoints handhour $animal2 2  l $(transformPoints "$matrixCubeFaced" $myhour)
+  makePoints handsec  $animal3 5  l $(transformPoints "$matrixCubeFaced" $mysec)
 
   makePoints E        \# 11 y $boxe
-  makePoints twelve   \. 15 l $(transformPoints "$facee" $twelve)
-  makePoints handmin  $animal1 6  l $(transformPoints "$facee" $mymin)
-  makePoints handhour $animal2 2  l $(transformPoints "$facee" $myhour)
-  makePoints handsec  $animal3 5  l $(transformPoints "$facee" $mysec)
-  makePoints clock    \. 8  l $(transformPoints "$facee" $myclock)
+  makePoints clock    \. 8  l $(transformPoints "$matrixCubeFacee" $myclock)
+  makePoints twelve   \. 15 l $(transformPoints "$matrixCubeFacee" $twelve)
+  makePoints handmin  $animal1 6  l $(transformPoints "$matrixCubeFacee" $mymin)
+  makePoints handhour $animal2 2  l $(transformPoints "$matrixCubeFacee" $myhour)
+  makePoints handsec  $animal3 5  l $(transformPoints "$matrixCubeFacee" $mysec)
 
   makePoints F        \# 13 y $boxf
-  makePoints twelve   \. 15 l $(transformPoints "$facef" $twelve)
-  makePoints handmin  $animal1 6  l $(transformPoints "$facef" $mymin)
-  makePoints handhour $animal2 2  l $(transformPoints "$facef" $myhour)
-  makePoints handsec  $animal3 5  l $(transformPoints "$facef" $mysec)
-  makePoints clock    \. 8  l $(transformPoints "$facef" $myclock)
+  makePoints clock    \. 8  l $(transformPoints "$matrixCubeFacef" $myclock)
+  makePoints twelve   \. 15 l $(transformPoints "$matrixCubeFacef" $twelve)
+  makePoints handmin  $animal1 6  l $(transformPoints "$matrixCubeFacef" $mymin)
+  makePoints handhour $animal2 2  l $(transformPoints "$matrixCubeFacef" $myhour)
+  makePoints handsec  $animal3 5  l $(transformPoints "$matrixCubeFacef" $mysec)
 }
 
-function makePlane {
-  d=8
-  y=$((-r/d))
-  while [ $y -le $((r/d)) ]; do
-    x=$((-r/d))
-    while [ $x -le $((r/d)) ]; do
-      echo -n "$((d*x)) $((d*y)) 0 1 "
-      x=$((x+1))
+
+
+function buildTexturedCube {
+  function buildTexturedFace {
+    echo $normalBasis
+    d=5
+    y=$((-r/d))
+    while [ $y -le $((r/d)) ]; do
+      x=$((-r/d))
+      while [ $x -le $((r/d)) ]; do
+        echo -n "$((d*x)) $((d*y)) 0 1 "
+        x=$((x+1))
+      done
+      y=$((y+1))
     done
-    y=$((y+1))
-  done
+  }
+  makePoints A a 4 p $(transformPoints "$matrixCubeFacea" $(buildTexturedFace))
+  makePoints B b 5 p $(transformPoints "$matrixCubeFaceb" $(buildTexturedFace))
+  makePoints C c 6 p $(transformPoints "$matrixCubeFacec" $(buildTexturedFace))
+  makePoints D d 7 p $(transformPoints "$matrixCubeFaced" $(buildTexturedFace))
+  makePoints E e 3 p $(transformPoints "$matrixCubeFacee" $(buildTexturedFace))
+  makePoints F f 2 p $(transformPoints "$matrixCubeFacef" $(buildTexturedFace))
 }
 
-function makeMap {
-  makePoints A a 4 p $(transformPoints "$facea" $basis $(makePlane))
-  makePoints B b 5 p $(transformPoints "$faceb" $basis $(makePlane))
-  makePoints C c 6 p $(transformPoints "$facec" $basis $(makePlane))
-  makePoints D d 7 p $(transformPoints "$faced" $basis $(makePlane))
-  makePoints E e 3 p $(transformPoints "$facee" $basis $(makePlane))
-  makePoints F f 2 p $(transformPoints "$facef" $basis $(makePlane))
-}
 
-# Render each object
-frame=0
-startTime=$(date +%s); sleep 1
-function plotGpoints {
-  local count=0
+
+#
+# Globals
+#
+powerButton=true
+frame=0 # Final plotting scale
+matrixGlobal=()  # Global transformation matrix
+startTime=$(($(date +%s)-1))
+matrixPerspective=$(matMultXform "$(matPerspective 30)" "$(matTrans 0 0 70)" "$(matScale 2 2 2)")
+
+
+
+function renderEachObject {
+  local fileIndex=0
   for l in "${glabels[@]}"; do
     read n c k t a b <<<$l
-    if isFacing $(matMult "${gm[*]}" ${gpoints[*]:$a:12}); then
-      count=$((count+1))
+    if isFacing $(matMult "${matrixGlobal[*]}" ${gpoints[*]:$a:12}); then
+      fileIndex=$((fileIndex+1))
       {
         CL $k
         case $t in 
-         (y) plotPoly   "$c" $(matMult "${gm[*]}" ${gpoints[*]:$a+12:$b-$a-12})  ;;
-         (l) plotLines  "$c" $(matMult "${gm[*]}" ${gpoints[*]:$a+12:$b-$a-12})  ;;
-         (p) plotPoints "$c" $(matMult "${gm[*]}" ${gpoints[*]:$a+12:$b-$a-12})  ;;
+         (y) plotPoly   "$c" $(matMult "${matrixGlobal[*]}" ${gpoints[*]:$a+12:$b-$a-12})  ;;
+         (l) plotLines  "$c" $(matMult "${matrixGlobal[*]}" ${gpoints[*]:$a+12:$b-$a-12})  ;;
+         (p) plotPoints "$c" $(matMult "${matrixGlobal[*]}" ${gpoints[*]:$a+12:$b-$a-12})  ;;
         esac
-      } >$count &
+      } >$fileIndex &
     fi
   done
-  wait
-  P $(
-    P $CSI 2J
-    while [ 0 -lt $count ]; do
-    cat $count
-    rm $count
-    count=$((count-1))
-  done
-  )
-  # Compute and display FPS
+  wait # for all the rendering child processes to finish
+
   frame=$((frame+1))
-  ps=$((100*frame/($(date +%s)-startTime)))
-  CL 8; P $CSI H $((ps/100)) . $((ps%100))
+  frameRate=$((100*frame/($(date +%s)-startTime)))
+
+  P $CSI 2J
+  cat $(eval "echo {1..$fileIndex}")
+  CL 8 "${CSI}H$((frameRate/100)).$((frameRate%100))"
+
+  rm $(eval "echo {1..$fileIndex}")
 }
 
-gtick=0 # Final plotting scale
 
-# Global transformation matrix
-#gm=()
-
-  glabels=()
-  gpoints=()
-  #makeMap
-  makeClock
-
-perspective=$(matMultXform "$(matPerspective 30)" "$(matTrans 0 0 70)" "$(matScale 2 2 2)")
-
-renderclock () {
-  read H W <<<$(stty size)
+function renderclock {
   H2=$((H/2))
   W2=$((W/2))
-  if [ $sec == 0 ] || [ $# == 1 ];then resetAnimals; fi
-  gm=($(matMultXform "$perspective" "$(matRotx $((gtick/3)))" "$(matRoty $gtick)"))
-  plotGpoints
+
+  # Recompute models.  They might be time dependent like a real-time analog clock.
+  glabels=()
+  gpoints=()
+  buildClockCube
+  #buildTexturedCube
+
+  # Rest animal chracters every minute or screen resize.
+  [ $sec == 0 ] || [ "$1" == -resetAnimals ] && resetAnimals
+  matrixGlobal=($(matMultXform "$matrixPerspective" "$(matRotx $((frame/3)))" "$(matRoty $frame)"))
+  renderEachObject
 }
 
 
 
-main () {
+function main {
   P $CSI?25l # Disable cursor
   resetAnimals
-  trap 'renderclock i' SIGWINCH
+  trap 'powerButton=false' SIGINT
+
+  # Initialize terminal size globals.  Also handle a terminal resize.
+  read H W <<<$(stty size)
+  trap 'read H W <<<$(stty size); renderclock -resetAnimals' SIGWINCH
+
   case $1 in
   (a)
-  while [ ! -e k ]; do
+  while $powerButton; do
     if [ "$currentTick" != $(date +%s) ]; then
       probetime $(date +'%H %M %S')
       renderclock
@@ -465,27 +480,15 @@ main () {
   done
   ;;
   (b)
-  while :; do
+  while $powerButton; do
   #for a in {1..90}; do 
-    #probetime $(date -r $gtick +'%H %M %S')
+    #probetime $(date -r $frame +'%H %M %S')
     probetime $(date +'%H %M %S')
     renderclock
-    gtick=$((gtick+1))
+    frame=$((frame+1))
   done
   ;;
   esac
 }
 
-#trap '' SIGINFO
-
-mainFast () {
-  P $CSI?25l # Disable cursor
-  resetAnimals
-  trap 'renderclock i' SIGWINCH
-  for a in {1..30}; do 
-    probetime $(date -r $gtick +'%H %M %S')
-    renderclock
-  done
-}
-
-time main b
+main b
