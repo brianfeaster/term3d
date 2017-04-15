@@ -468,7 +468,7 @@ function renderEachObject {
 
   P $CSI 2J
   cat $(eval "echo {1..$fileIndex}")
-  CL 8 "${CSI}H$((frameRate/100)).$((frameRate%100))"
+  CL 8 "${CSI}H$frame $((frameRate/100)).$((frameRate%100))"
 
   rm $(eval "echo {1..$fileIndex}")
 }
@@ -497,7 +497,11 @@ function handle_sigwinch {
   renderclock -resetAnimals
 }
 
+#
+# USAGE:  basciiclock [a|b] {frame count}
+#
 function main {
+  framemax=${2:--1}
   P $CSI?25l # Disable cursor
   probeTerminal
   resetAnimals
@@ -513,14 +517,17 @@ function main {
       sleep .9
     done
   ;; (b)
-    while $powerButton; do
+    while $powerButton && [ $frame != $framemax ] ; do
     #for a in {1..90}; do 
       #probetime $(date -r $frame +'%H %M %S')
-      probetime $(date +'%H %M %S')
+      #probetime $(date +'%H %M %S')
       renderclock
-      frame=$((frame+1))
     done
   ;; esac
 }
 
+# Time run 60 frames
+#time main b 60
+
+# Run indefinitely or until ^C
 main b
