@@ -258,32 +258,32 @@ function plotPoly () {
    #Start point
    x=$(($1/$4))
    y=$(($2/$4))
-   z=$(($3/$4))
+   #z=$(($3/$4))
 
    sx=$x
    sy=$y # remember this as last point
-   sz=$z
+   #sz=$z
 
    lx=$x
    ly=$y # last coordinate
-   lz=$z
+   #lz=$z
 
   while [ 8 -le $# ] && shift 4; do
     x=$(($1/$4))
     y=$(($2/$4)) # next point
     z=$(($3/$4))
 
-    [ 0 -lt $lz ] && [ 0 -lt $z ] && {
+    #[ 0 -lt $lz ] && [ 0 -lt $z ] && {
       line  $ly $lx $y $x "$ch"
-    }
+    #}
     lx=$x
     ly=$y # last point
-    lz=$z
+    #lz=$z
 
   done
-  [ 0 -lt $sz ] && [ 0 -lt $lz ] && {
+  #[ 0 -lt $sz ] && [ 0 -lt $lz ] && {
     line $ly $lx $sy $sx "$ch"
-  }
+  #}
 }
 
 function plotPoints () {
@@ -359,42 +359,42 @@ function buildClockCube {
 
   makePoints A        \# 9 y $boxa
   makePoints clock    \. 8 l  $(matMult      $matrixCubeFacea $myclock)
-  #makePoints twelve   \. 15 l $(matMult      $matrixCubeFacea $twelve)
+  makePoints twelve   \. 15 l $(matMult      $matrixCubeFacea $twelve)
   makePoints handmin  $animal1 6 l $(matMult $matrixCubeFacea $mymin)
   makePoints handhour $animal2 2 l $(matMult $matrixCubeFacea $myhour)
   makePoints handsec  $animal3 5 l $(matMult $matrixCubeFacea $mysec)
 
   makePoints B        \# 10 y $boxb
   makePoints clock    \. 8  l $(matMult       $matrixCubeFaceb $myclock)
-#  makePoints twelve   \. 15 l $(matMult       $matrixCubeFaceb $twelve)
+  makePoints twelve   \. 15 l $(matMult       $matrixCubeFaceb $twelve)
   makePoints handmin  $animal1 6  l $(matMult $matrixCubeFaceb $mymin)
   makePoints handhour $animal2 2  l $(matMult $matrixCubeFaceb $myhour)
   makePoints handsec  $animal3 5  l $(matMult $matrixCubeFaceb $mysec)
 
   makePoints C        \# 12 y $boxc
   makePoints clock    \. 8  l $(matMult       $matrixCubeFacec $myclock)
-#  makePoints twelve   \. 15 l $(matMult       $matrixCubeFacec $twelve)
+  makePoints twelve   \. 15 l $(matMult       $matrixCubeFacec $twelve)
   makePoints handmin  $animal1 6  l $(matMult $matrixCubeFacec $mymin)
   makePoints handhour $animal2 2  l $(matMult $matrixCubeFacec $myhour)
   makePoints handsec  $animal3 5  l $(matMult $matrixCubeFacec $mysec)
 
   makePoints D        \# 14 y $boxd
   makePoints clock    \. 8  l $(matMult       $matrixCubeFaced $myclock)
-#  makePoints twelve   \. 15 l $(matMult       $matrixCubeFaced $twelve)
+  makePoints twelve   \. 15 l $(matMult       $matrixCubeFaced $twelve)
   makePoints handmin  $animal1 6  l $(matMult $matrixCubeFaced $mymin)
   makePoints handhour $animal2 2  l $(matMult $matrixCubeFaced $myhour)
   makePoints handsec  $animal3 5  l $(matMult $matrixCubeFaced $mysec)
 
   makePoints E        \# 11 y $boxe
   makePoints clock    \. 8  l $(matMult       $matrixCubeFacee $myclock)
-#  makePoints twelve   \. 15 l $(matMult       $matrixCubeFacee $twelve)
+  makePoints twelve   \. 15 l $(matMult       $matrixCubeFacee $twelve)
   makePoints handmin  $animal1 6  l $(matMult $matrixCubeFacee $mymin)
   makePoints handhour $animal2 2  l $(matMult $matrixCubeFacee $myhour)
   makePoints handsec  $animal3 5  l $(matMult $matrixCubeFacee $mysec)
 
   makePoints F        \# 13 y $boxf
   makePoints clock    \. 8  l $(matMult       $matrixCubeFacef $myclock)
-#  makePoints twelve   \. 15 l $(matMult       $matrixCubeFacef $twelve)
+  makePoints twelve   \. 15 l $(matMult       $matrixCubeFacef $twelve)
   makePoints handmin  $animal1 6  l $(matMult $matrixCubeFacef $mymin)
   makePoints handhour $animal2 2  l $(matMult $matrixCubeFacef $myhour)
   makePoints handsec  $animal3 5  l $(matMult $matrixCubeFacef $mysec)
@@ -432,7 +432,7 @@ function buildTexturedCube {
 powerButton=true
 frame=0 # Final plotting scale
 startTime=$(($(date +%s)-1))
-matrixPerspective=$(matMultXform $(matPerspective 30) $(matTrans 0 0 90) $(matScale 2 2 2))
+matrixPerspective=$(matMultXform $(matPerspective 40) $(matTrans 0 0 90) $(matScale 2 2 2))
 
 
 
