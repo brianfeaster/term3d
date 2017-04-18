@@ -142,15 +142,23 @@ function line {
   done
 }
 
+
+
+#
+# Deal with time
+#
 # Scan hour, min, sec.  10# forces base 10 parsing of numbers beginning with 0
-probetime (){ hour=$((10#$1 * 10)); min=$((10#$2 * 2)); sec=$((10#$3 * 2)); }
+function probetime {
+  hour=$((10#$1 * 10)); min=$((10#$2 * 2)); sec=$((10#$3 * 2))
+}
 probetime $(date +'%H %M %S')
 
-identity="1 0 0 0  0 1 0 0   0 0 1 0  0 0 0 1"
+
 
 #
 # Create transformation matrices
 #
+identity="1 0 0 0  0 1 0 0   0 0 1 0  0 0 0 1"
 function matRotz () { echo ${COSTABLE[$1%120]} $((- SINTABLE[$1%120])) 0 0 ${SINTABLE[$1%120]} ${COSTABLE[$1%120]} 0 0 0 0 120 0 0 0 0 120; }
 function matRoty () { echo ${COSTABLE[$1%120]} 0 $((- SINTABLE[$1%120])) 0 0 120 0 0 ${SINTABLE[$1%120]} 0 ${COSTABLE[$1%120]} 0 0 0 0 120; }
 function matRotx () { echo 120 0 0 0 0 ${COSTABLE[$1%120]} ${SINTABLE[$1%120]} 0 0   $((- SINTABLE[$1%120])) ${COSTABLE[$1%120]} 0 0 0 0 120; }
@@ -315,7 +323,7 @@ resetAnimals
 glables=()
 gpoints=()
 
-r=20
+r=15
 
 # Keep track of sets of points
 function makePoints {
@@ -405,7 +413,7 @@ function buildClockCube {
 function buildTexturedCube {
   function buildTexturedFace {
     echo $normalBasis
-    d=5
+    d=6
     y=$((-r/d))
     while [ $y -le $((r/d)) ]; do
       x=$((-r/d))
@@ -467,15 +475,6 @@ function renderObjects {
   PC 8 "${CSI}Hframe:$frame\nfps:$((frameRate/100)).$((frameRate%100))\nobjs:$fileIndex"
 }
 
-  # Recompute models.  They might be time dependent like a real-time analog clock.
-  glabels=()
-  gpoints=()
-  buildClockCube
-  #buildTexturedCube -30   0 0
-  #buildTexturedCube  30   0 0
-  #buildTexturedCube   0 0 -30
-  #buildTexturedCube   0 0  30
-
 #
 # USAGE:  basciiclock [a|b] {frame count}
 #
@@ -490,22 +489,28 @@ function main {
   trap main_sigwinch SIGWINCH
   case $1 in (a)
     while $powerButton; do
-      if [ "$currentTick" != $(date +%s) ]; then
-        probetime $(date +'%H %M %S')
+      if [ "$jiffy" != $(date +%s) ]; then
+        jiffy=$(date +%s)
+        #probetime $(date -r $frame +'%H %M %S')
         renderObjects
-        currentTick=$(date +%s)
       fi
       sleep .9
     done
   ;; (b)
+      #buildTexturedCube -30   0 0
+      #buildTexturedCube  30   0 0
+      #buildTexturedCube   0 0 -30
+      buildTexturedCube   0 0  30
     while $powerButton && [ $frame != $framestop ] ; do
-    #for a in {1..90}; do 
-      #probetime $(date -r $frame +'%H %M %S')
-      #probetime $(date +'%H %M %S')
+      probetime $(date +'%H %M %S')
+      # Recompute models.  They might be time dependent like a real-time analog clock.
+      glabels=()
+      gpoints=()
+      buildClockCube
       renderObjects
     done
   ;; esac
 }
 
-#time main b 60 # Time run 60 frames
+#time main b 20 # Time run 60 frames
 main b # Run indefinitely or until ^C
