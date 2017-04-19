@@ -31,7 +31,6 @@ P    (){ printf %s $@ ; }
 dv   (){ while [ 0 -lt $# ]; do printf '[%6d %6d %6d %6d]\n' $1 $2 $3 $4; shift 4; done; }
 dvn  (){ while [ 0 -lt $# ]; do printf '[%6d %6d %6d %6d | %6d]\n' $(($1/$4)) $(($2/$4)) $(($3/$4)) $(($4/$4)) $4; shift 4; done; }
 dm4  (){ printf '[%6d %6d %6d %6d]\n' $1 $2 $3 $4 $5 $6 $7 $8 $9 ${10} ${11} ${12} ${13} ${14} ${15} ${16}; }
-dm4n (){ printf '[%6d %6d %6d %6d]\n' $(($1/$16)) $(($2/$16)) $(($3/$16)) $(($4/$16)) $(($5/$16)) $(($6/$16)) $(($7/$16)) $(($8/$16)) $(($9/$16)) $(($10/$16)) $(($11/$16)) $(($12/$16)) $(($13/$16)) $(($14/$16)) $(($15/$16)) $(($16/$16)); }
 G2   (){ printf "\x1b[$(($1+THEIGHT2));$(($2+TWIDTH2))H$3"; }
 COLORS=('0' '0;31' '0;32' '0;33' '0;34' '0;35' '0;36' '0;37' '1;30' '1;31' '1;32' '1;33' '1;34' '1;35' '1;36' '1;37')
 function PC { local c=$1; shift; printf "\e[${COLORS[c]}m$*"; }
@@ -321,15 +320,17 @@ resetAnimals
 
 # Object descriptor and vertex stores
 glables=()
+gnormals=()
 gpoints=()
 
 r=15
 
-# Keep track of sets of points
+# Keep track of sets of points.  args: label char color type normal-pointes points...
 function makePoints {
-  local len=${#gpoints[*]}
-  glabels=("${glabels[@]}" "$1 $2 $3 $4 $len $((len+$#-4))")
-  shift 4
+  local currentElementCount=${#gpoints[@]}
+  local newElementCount=$(($#-16)) # Don't count the non-vectors and normal vectors
+  glabels=("${glabels[@]}" "$1 $2 $3 $4 $currentElementCount $((currentElementCount+newElementCount))"); shift 4
+  gnormals=(${gnormals[@]} $1 $2 $3 $4  $5 $6 $7 $8  $9 ${10} ${11} ${12}); shift 12
   gpoints=(${gpoints[@]} $*)
 }
 
@@ -448,16 +449,17 @@ function renderObjects {
   [ $sec == 0 ] || [ "$1" == -resetAnimals ] && resetAnimals # Animal glyphs reset every minute or screen resize.
   local fileIndex=0
   local mat=$(matMultXform $matrixPerspective $(matRotx $frame) $(matTrans 0 1 0) $(matRoty $frame))
-  for l in "${glabels[@]}"; do
-    read n c k t a b <<<$l
-    if isFacing $(matMult $mat ${gpoints[*]:$a:12}); then
+  local norms=($(matMult $mat ${gnormals[@]}))
+  for i in $(eval "echo {0..$((${#glabels[@]}-1))}"); do
+    read n c k t a b <<<${glabels[$i]}
+    if isFacing ${norms[@]:$i*12:12}; then
       fileIndex=$((fileIndex+1))
       {
         PC $k
         case $t in 
-         (y) plotPoly   "$c" $(matMult $mat ${gpoints[*]:$a+12:$b-$a-12})  ;;
-         (l) plotLines  "$c" $(matMult $mat ${gpoints[*]:$a+12:$b-$a-12})  ;;
-         (p) plotPoints "$c" $(matMult $mat ${gpoints[*]:$a+12:$b-$a-12})  ;;
+         (y) plotPoly   "$c" $(matMult $mat ${gpoints[*]:$a:$b-$a}) ;;
+         (l) plotLines  "$c" $(matMult $mat ${gpoints[*]:$a:$b-$a}) ;;
+         (p) plotPoints "$c" $(matMult $mat ${gpoints[*]:$a:$b-$a}) ;;
         esac
       } >$fileIndex &
     fi
@@ -474,6 +476,8 @@ function renderObjects {
   fi 
   PC 8 "${CSI}Hframe:$frame\nfps:$((frameRate/100)).$((frameRate%100))\nobjs:$fileIndex"
 }
+
+
 
 #
 # USAGE:  basciiclock [a|b] {frame count}
@@ -500,11 +504,12 @@ function main {
       #buildTexturedCube -30   0 0
       #buildTexturedCube  30   0 0
       #buildTexturedCube   0 0 -30
-      buildTexturedCube   0 0  30
+      #buildTexturedCube   0 0  30
     while $powerButton && [ $frame != $framestop ] ; do
       probetime $(date +'%H %M %S')
       # Recompute models.  They might be time dependent like a real-time analog clock.
       glabels=()
+      gnormals=()
       gpoints=()
       buildClockCube
       renderObjects
