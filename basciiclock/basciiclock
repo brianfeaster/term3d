@@ -303,6 +303,7 @@ function plotPoints () {
      z=$(($3/$4))
      if [ 0 -lt $z ]; then
        G2 $y $x ${ary:i:1}
+       #G2 $y $x \*
        i=$((i+1))
        [ $i -lt ${#ary} ] || i=0
      fi
@@ -323,7 +324,7 @@ glables=()
 gnormals=()
 gpoints=()
 
-r=15
+r=20
 
 # Keep track of sets of points.  args: label char color type normal-pointes points...
 function makePoints {
@@ -444,37 +445,50 @@ startTime=$(($(date +%s)-1))
 matrixPerspective=$(matMultXform $(matPerspective 40) $(matTrans 0 0 90) $(matScale 2 2 2))
 
 
+function renderobjectset {
+  while [ 0 -lt $# ]; do
+    read n c k t a b <<<${glabels[$1]}
+    shift
+    PC $k
+    case $t in 
+      (y) plotPoly   "$c" $(matMult $mat ${gpoints[*]:$a:$b-$a}) ;;
+      (l) plotLines  "$c" $(matMult $mat ${gpoints[*]:$a:$b-$a}) ;;
+      (p) plotPoints "$c" $(matMult $mat ${gpoints[*]:$a:$b-$a}) ;;
+    esac
+  done
+}
 
 function renderObjects {
   [ $sec == 0 ] || [ "$1" == -resetAnimals ] && resetAnimals # Animal glyphs reset every minute or screen resize.
-  local fileIndex=0
-  local mat=$(matMultXform $matrixPerspective $(matRotx $frame) $(matTrans 0 1 0) $(matRoty $frame))
+  local mat=$(matMultXform $matrixPerspective $(matRotx $((frame/-9))) $(matTrans 0 1 0) $(matRoty $frame))
   local norms=($(matMult $mat ${gnormals[@]}))
+  local ii count=0 facing=0 thread=0
   for i in $(eval "echo {0..$((${#glabels[@]}-1))}"); do
-    read n c k t a b <<<${glabels[$i]}
     if isFacing ${norms[@]:$i*12:12}; then
-      fileIndex=$((fileIndex+1))
-      {
-        PC $k
-        case $t in 
-         (y) plotPoly   "$c" $(matMult $mat ${gpoints[*]:$a:$b-$a}) ;;
-         (l) plotLines  "$c" $(matMult $mat ${gpoints[*]:$a:$b-$a}) ;;
-         (p) plotPoints "$c" $(matMult $mat ${gpoints[*]:$a:$b-$a}) ;;
-        esac
-      } >$fileIndex &
+      facing=$((facing+1))
+      count=$((count+1))
+      ii="$ii $i"
+      if [ 0 -lt $count ]; then # more things happen per thread the higher this number is
+        thread=$((thread+1))
+        renderobjectset $ii > "$thread" &
+        count=0
+        ii=""
+      fi
     fi
   done
-  wait # for all the rendering child processes to finish
-
+  [ 0 -lt $count ] && {
+    thread=$((thread+1))
+    renderobjectset $ii > "$thread" &
+  }
   frame=$((frame+1))
   frameRate=$((100*frame/($(date +%s)-startTime)))
-
-  P $CSI 2J
-  if [ $fileIndex != 0 ]; then
-    cat $(eval "echo {1..$fileIndex}")
-    rm  $(eval "echo {1..$fileIndex}")
+  if [ $thread != 0 ]; then
+    wait # for all the rendering child processes to finish
+    P $CSI 2J
+    cat $(eval "echo {1..$thread}")
+    PC 8 "${CSI}Hframe:$frame\nfps:$((frameRate/100)).$((frameRate%100))\nobjs:$facing\nthreads:$thread"
+    rm  $(eval "echo {1..$thread}")
   fi 
-  PC 8 "${CSI}Hframe:$frame\nfps:$((frameRate/100)).$((frameRate%100))\nobjs:$fileIndex"
 }
 
 
@@ -517,5 +531,5 @@ function main {
   ;; esac
 }
 
-#time main b 20 # Time run 60 frames
+#time main b 30 # Time run 60 frames
 main b # Run indefinitely or until ^C
