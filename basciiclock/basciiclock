@@ -22,7 +22,9 @@
 CSI=$'\e['
 
 SINTABLE=(0 6 12 18 25 31 37 43 49 54 60 65 70 75 80 85 89 93 97 101 104 107 110 112 114 116 117 119 119 120 120 120 119 119 117 116 114 112 110 107 104 101 97 93 89 85 80 75 70 65 60 54 49 43 37 31 25 18 12 6 0 -6 -12 -18 -25 -31 -37 -43 -49 -54 -60 -65 -70 -75 -80 -85 -89 -93 -97 -101 -104 -107 -110 -112 -114 -116 -117 -119 -119 -120 -120 -120 -119 -119 -117 -116 -114 -112 -110 -107 -104 -101 -97 -93 -89 -85 -80 -75 -70 -65 -60 -54 -49 -43 -37 -31 -25 -18 -12 -6)
+SINTABLEI=(0 -6 -12 -18 -25 -31 -37 -43 -49 -54 -60 -65 -70 -75 -80 -85 -89 -93 -97 -101 -104 -107 -110 -112 -114 -116 -117 -119 -119 -120 -120 -120 -119 -119 -117 -116 -114 -112 -110 -107 -104 -101 -97 -93 -89 -85 -80 -75 -70 -65 -60 -54 -49 -43 -37 -31 -25 -18 -12 -6 0 6 12 18 25 31 37 43 49 54 60 65 70 75 80 85 89 93 97 101 104 107 110 112 114 116 117 119 119 120 120 120 119 119 117 116 114 112 110 107 104 101 97 93 89 85 80 75 70 65 60 54 49 43 37 31 25 18 12 6)
 COSTABLE=(120 120 119 119 117 116 114 112 110 107 104 101 97 93 89 85 80 75 70 65 60 54 49 43 37 31 25 18 12 6 0 -6 -12 -18 -25 -31 -37 -43 -49 -54 -60 -65 -70 -75 -80 -85 -89 -93 -97 -101 -104 -107 -110 -112 -114 -116 -117 -119 -119 -120 -120 -120 -119 -119 -117 -116 -114 -112 -110 -107 -104 -101 -97 -93 -89 -85 -80 -75 -70 -65 -60 -54 -49 -43 -37 -31 -25 -18 -12 -6 0 6 12 18 25 31 37 43 49 54 60 65 70 75 80 85 89 93 97 101 104 107 110 112 114 116 117 119 119 120)
+COSTABLEI=(-120 -120 -119 -119 -117 -116 -114 -112 -110 -107 -104 -101 -97 -93 -89 -85 -80 -75 -70 -65 -60 -54 -49 -43 -37 -31 -25 -18 -12 -6 0 6 12 18 25 31 37 43 49 54 60 65 70 75 80 85 89 93 97 101 104 107 110 112 114 116 117 119 119 120 120 120 119 119 117 116 114 112 110 107 104 101 97 93 89 85 80 75 70 65 60 54 49 43 37 31 25 18 12 6 0 -6 -12 -18 -25 -31 -37 -43 -49 -54 -60 -65 -70 -75 -80 -85 -89 -93 -97 -101 -104 -107 -110 -112 -114 -116 -117 -119 -119 -120)
 
 function hex { printf "%02x" $1; }
 function aoctopus { printf "\xf0\x9f\x90\x${1:-$(hex $((128+RANDOM%64)))}"; }
@@ -61,7 +63,6 @@ function inscreen { # x y
 
 
 function line {
-  #echo "line: $*"
   local x y m n d dx dy w ws nx ny yyxx e i
   # Make sure line is drawn from left -x to right +x in the temrinal.
   if [ $2 -le $4 ]; then
@@ -100,7 +101,6 @@ function line {
   #  0 = out
   #  1 = in
   local state=0
-  #echo [nowstartout]
 
   yy=$((ny + ny))
   yyxx=$((yy - nx - nx))
@@ -158,9 +158,9 @@ probetime $(date +'%H %M %S')
 # Create transformation matrices
 #
 identity="1 0 0 0  0 1 0 0   0 0 1 0  0 0 0 1"
-function matRotz () { echo ${COSTABLE[$1%120]} $((- SINTABLE[$1%120])) 0 0 ${SINTABLE[$1%120]} ${COSTABLE[$1%120]} 0 0 0 0 120 0 0 0 0 120; }
-function matRoty () { echo ${COSTABLE[$1%120]} 0 $((- SINTABLE[$1%120])) 0 0 120 0 0 ${SINTABLE[$1%120]} 0 ${COSTABLE[$1%120]} 0 0 0 0 120; }
-function matRotx () { echo 120 0 0 0 0 ${COSTABLE[$1%120]} ${SINTABLE[$1%120]} 0 0   $((- SINTABLE[$1%120])) ${COSTABLE[$1%120]} 0 0 0 0 120; }
+function matRotz () { echo ${COSTABLE[(120+$1)%120]} ${SINTABLEI[(120+$1)%120]} 0 0 ${SINTABLE[(120+$1)%120]} ${COSTABLE[(120+$1)%120]} 0 0 0 0 120 0 0 0 0 120; }
+function matRoty () { echo ${COSTABLE[(120+$1)%120]} 0 ${SINTABLEI[(120+$1)%120]} 0 0 120 0 0 ${SINTABLE[(120+$1)%120]} 0 ${COSTABLE[(120+$1)%120]} 0 0 0 0 120; }
+function matRotx () { echo 120 0 0 0 0 ${COSTABLE[(120+$1)%120]} ${SINTABLE[(120+$1)%120]} 0 0   ${SINTABLEI[(120+$1)%120]} ${COSTABLE[(120+$1)%120]} 0 0 0 0 120; }
 function matScale () { echo $1 0 0 0  0 $2 0 0  0 0 $3 0  0 0 0 1; }
 function matTrans () { echo 1 0 0 $1  0 1 0 $2  0 0 1 $3  0 0 0 1; }
 function matPerspective () { echo 1000 0 0 0  0 1000 0 0  0 0 1000 0  0 0 $((1000/$1)) 1000; }
@@ -373,7 +373,7 @@ function buildClockCube {
   makePoints handmin  $animal1 6 l $(matMult $matrixCubeFacea $mymin)
   makePoints handhour $animal2 2 l $(matMult $matrixCubeFacea $myhour)
   makePoints handsec  $animal3 5 l $(matMult $matrixCubeFacea $mysec)
-
+ 
   makePoints B        \# 10 y $boxb
   makePoints clock    \. 8  l $(matMult       $matrixCubeFaceb $myclock)
   makePoints twelve   \. 15 l $(matMult       $matrixCubeFaceb $twelve)
@@ -515,12 +515,12 @@ function main {
       sleep .9
     done
   ;; (b)
-      #buildTexturedCube -30   0 0
-      #buildTexturedCube  30   0 0
-      #buildTexturedCube   0 0 -30
-      #buildTexturedCube   0 0  30
     while $powerButton && [ $frame != $framestop ] ; do
       probetime $(date +'%H %M %S')
+      #buildTexturedCube -30   0 0
+      #buildTexturedCube  30   0 0
+      #buildTexturedCube   0 0  30
+      #buildTexturedCube   0 0 -30
       # Recompute models.  They might be time dependent like a real-time analog clock.
       glabels=()
       gnormals=()
