@@ -4,55 +4,78 @@
 ## Poor man's console 3d lib
 ##
 
-# Concepts:
-#
-#  * Vectors and matrices are just bash arrays and passed by value as individual args or quoted args.
-#  * Everything's fixed point because bash math has no floating math support.
-#  * Unit circle radius=120
-#  * Radian SINTABLE 120 in size
-#  * Presume +Z extends beyond screen away from viewer.
-#
-# Notes:
-#
-#  Although you can pass an array as a symbolic reference to a function as 'ary[@]' then
-#  copy it locally with myary=(${!1}), it's faster just to pass the array around
-#  as an expanded list of values "${ary[*]}" and copied locally with myary=($1) or just
-#  used directly and consumed along with shift which seems to be the fastest.
+## Concepts:
+##
+##  * Vectors and matrices are just bash arrays and passed by value as individual args or quoted args.
+##  * Everything's fixed point because bash math has no floating math support.
+##  * Unit circle radius=120
+##  * Radian SINTABLE 120 in size
+##  * Presume +Z extends beyond screen away from viewer.
+##
+## Notes:
+##
+##  Although you can pass an array as a symbolic reference to a function as 'ary[@]' then
+##  copy it locally with myary=(${!1}), it's faster just to pass the array around
+##  as an expanded list of values "${ary[*]}" and copied locally with myary=($1) or just
+##  used directly and consumed along with shift which seems to be the fastest.
 
-CSI=$'\e['
 
+##
+## Math stuff.  Mappings from [0..120] -> [-120..120]
+##
 SINTABLE=(0 6 12 18 25 31 37 43 49 54 60 65 70 75 80 85 89 93 97 101 104 107 110 112 114 116 117 119 119 120 120 120 119 119 117 116 114 112 110 107 104 101 97 93 89 85 80 75 70 65 60 54 49 43 37 31 25 18 12 6 0 -6 -12 -18 -25 -31 -37 -43 -49 -54 -60 -65 -70 -75 -80 -85 -89 -93 -97 -101 -104 -107 -110 -112 -114 -116 -117 -119 -119 -120 -120 -120 -119 -119 -117 -116 -114 -112 -110 -107 -104 -101 -97 -93 -89 -85 -80 -75 -70 -65 -60 -54 -49 -43 -37 -31 -25 -18 -12 -6)
 SINTABLEI=(0 -6 -12 -18 -25 -31 -37 -43 -49 -54 -60 -65 -70 -75 -80 -85 -89 -93 -97 -101 -104 -107 -110 -112 -114 -116 -117 -119 -119 -120 -120 -120 -119 -119 -117 -116 -114 -112 -110 -107 -104 -101 -97 -93 -89 -85 -80 -75 -70 -65 -60 -54 -49 -43 -37 -31 -25 -18 -12 -6 0 6 12 18 25 31 37 43 49 54 60 65 70 75 80 85 89 93 97 101 104 107 110 112 114 116 117 119 119 120 120 120 119 119 117 116 114 112 110 107 104 101 97 93 89 85 80 75 70 65 60 54 49 43 37 31 25 18 12 6)
 COSTABLE=(120 120 119 119 117 116 114 112 110 107 104 101 97 93 89 85 80 75 70 65 60 54 49 43 37 31 25 18 12 6 0 -6 -12 -18 -25 -31 -37 -43 -49 -54 -60 -65 -70 -75 -80 -85 -89 -93 -97 -101 -104 -107 -110 -112 -114 -116 -117 -119 -119 -120 -120 -120 -119 -119 -117 -116 -114 -112 -110 -107 -104 -101 -97 -93 -89 -85 -80 -75 -70 -65 -60 -54 -49 -43 -37 -31 -25 -18 -12 -6 0 6 12 18 25 31 37 43 49 54 60 65 70 75 80 85 89 93 97 101 104 107 110 112 114 116 117 119 119 120)
 COSTABLEI=(-120 -120 -119 -119 -117 -116 -114 -112 -110 -107 -104 -101 -97 -93 -89 -85 -80 -75 -70 -65 -60 -54 -49 -43 -37 -31 -25 -18 -12 -6 0 6 12 18 25 31 37 43 49 54 60 65 70 75 80 85 89 93 97 101 104 107 110 112 114 116 117 119 119 120 120 120 119 119 117 116 114 112 110 107 104 101 97 93 89 85 80 75 70 65 60 54 49 43 37 31 25 18 12 6 0 -6 -12 -18 -25 -31 -37 -43 -49 -54 -60 -65 -70 -75 -80 -85 -89 -93 -97 -101 -104 -107 -110 -112 -114 -116 -117 -119 -119 -120)
 
-function hex { printf "%02x" $1; }
-function aoctopus { printf "\xf0\x9f\x90\x${1:-$(hex $((128+RANDOM%64)))}"; }
 
-P    (){ printf %s $@ ; }
-dv   (){ while [ 0 -lt $# ]; do printf '[%6d %6d %6d %6d]\n' $1 $2 $3 $4; shift 4; done; }
-dvn  (){ while [ 0 -lt $# ]; do printf '[%6d %6d %6d %6d | %6d]\n' $(($1/$4)) $(($2/$4)) $(($3/$4)) $(($4/$4)) $4; shift 4; done; }
-dm4  (){ printf '[%6d %6d %6d %6d]\n' $1 $2 $3 $4 $5 $6 $7 $8 $9 ${10} ${11} ${12} ${13} ${14} ${15} ${16}; }
-G2   (){ printf "\x1b[$(($1+THEIGHT2));$(($2+TWIDTH2))H$3"; }
-COLORS=('0' '0;31' '0;32' '0;33' '0;34' '0;35' '0;36' '0;37' '1;30' '1;31' '1;32' '1;33' '1;34' '1;35' '1;36' '1;37')
-function PC { local c=$1; shift; printf "\e[${COLORS[c]}m$*"; }
+##
+## Time stuff
+##
+## Consider time as normalized values:  hours [0..240] minuts & seconds [0..120].
+## I do this because the above trig function domains are [0..120].
+##
+hour=0
+min=0
+sec=0
+function timeProbe {
+  local h m s
+  if [ $# == 1 ]; then
+    read h m s <<< $(date -r $1 +'%H %M %S')
+  else
+    read h m s  <<< $(date +'%H %M %S')
+  fi
+  hour=$((10#$h * 10)) #10# forces base 10 values otherwise octal 09 can't be parsed.
+  min=$((10#$m * 2))
+  sec=$((10#$s * 2))
+}
+timeProbe $(date +'%H %M %S')
 
 
-#
-# Keep track of terminal dimensions.
-#
+##
+## Terminal stuff
+##
 TWIDTH=80
 TWIDTH2=40
 THEIGHT=25
 THEIGHT2=13
-function probeTerminal {
+function hex { printf "%02x" $1; }
+# UTF-8 critter glyphs
+function acritter { printf "\xf0\x9f\x90\x${1:-$(hex $((128+RANDOM%64)))}"; }
+function resetCritters {
+  animal1=$(acritter)
+  animal2=$(acritter)
+  animal3=$(acritter)
+}
+resetCritters
+
+function terminalProbe {
   read THEIGHT TWIDTH <<<$(stty size);
   THEIGHT2=$((THEIGHT/2))
   TWIDTH2=$((TWIDTH/2))
 }
 
-
-function inscreen { # x y
+function terminalIsInScreen { # ARGS: x y
   local x=$(($1+TWIDTH2))
   local y=$(($2+THEIGHT2))
   if [ $x -lt 1 ] || [ $y -lt 1 ] || [ $TWIDTH -lt $x ] || [ $THEIGHT -lt $y ]; then
@@ -61,8 +84,9 @@ function inscreen { # x y
   return 0
 }
 
+function G2 { printf "\e[$(($1+THEIGHT2));$(($2+TWIDTH2))H$3"; }
 
-function line {
+function terminalDrawLine {
   local x y m n d dx dy w ws nx ny yyxx e i
   # Make sure line is drawn from left -x to right +x in the temrinal.
   if [ $2 -le $4 ]; then
@@ -110,12 +134,12 @@ function line {
   while [ 0 -lt $i ]; do
     if [ 0 -le $e ]; then
       if [ $state == 1 ]; then
-        inscreen $x $y || { # done if out of screen
+        terminalIsInScreen $x $y || { # done if out of screen
            return 0
         }
         printf "$ws$5"
       else # state == 0
-        if inscreen $x $y; then
+        if terminalIsInScreen $x $y; then
           G2 $y $x $5
           state=1
         fi
@@ -124,12 +148,12 @@ function line {
       e=$((e + yyxx))
     else
       if [ $state == 1 ]; then
-        inscreen $x $y || { # done if out of screen
+        terminalIsInScreen $x $y || { # done if out of screen
           return 0
         }
         printf $w$5
       else # state == 0
-        if inscreen $x $y
+        if terminalIsInScreen $x $y
           then G2 $y $x $5
           state=1
         fi
@@ -142,21 +166,21 @@ function line {
 }
 
 
-
-#
-# Deal with time
-#
-# Scan hour, min, sec.  10# forces base 10 parsing of numbers beginning with 0
-function probetime {
-  hour=$((10#$1 * 10)); min=$((10#$2 * 2)); sec=$((10#$3 * 2))
-}
-probetime $(date +'%H %M %S')
-
+##
+## Debugging
+##
+dv   (){ while [ 0 -lt $# ]; do printf '[%6d %6d %6d %6d]\n' $1 $2 $3 $4; shift 4; done; }
+dvn  (){ while [ 0 -lt $# ]; do printf '[%6d %6d %6d %6d | %6d]\n' $(($1/$4)) $(($2/$4)) $(($3/$4)) $(($4/$4)) $4; shift 4; done; }
+dm4  (){ printf '[%6d %6d %6d %6d]\n' $1 $2 $3 $4 $5 $6 $7 $8 $9 ${10} ${11} ${12} ${13} ${14} ${15} ${16}; }
+COLORS=('0' '0;31' '0;32' '0;33' '0;34' '0;35' '0;36' '0;37' '1;30' '1;31' '1;32' '1;33' '1;34' '1;35' '1;36' '1;37')
+function PC { local c=$1; shift; printf "\e[${COLORS[c]}m$*"; }
 
 
-#
-# Create transformation matrices
-#
+
+##
+## Matrix
+##
+
 identity="1 0 0 0  0 1 0 0   0 0 1 0  0 0 0 1"
 function matRotz () { echo ${COSTABLE[(120+$1)%120]} ${SINTABLEI[(120+$1)%120]} 0 0 ${SINTABLE[(120+$1)%120]} ${COSTABLE[(120+$1)%120]} 0 0 0 0 120 0 0 0 0 120; }
 function matRoty () { echo ${COSTABLE[(120+$1)%120]} 0 ${SINTABLEI[(120+$1)%120]} 0 0 120 0 0 ${SINTABLE[(120+$1)%120]} 0 ${COSTABLE[(120+$1)%120]} 0 0 0 0 120; }
@@ -166,7 +190,7 @@ function matTrans () { echo 1 0 0 $1  0 1 0 $2  0 0 1 $3  0 0 0 1; }
 function matPerspective () { echo 1000 0 0 0  0 1000 0 0  0 0 1000 0  0 0 $((1000/$1)) 1000; }
 
 #
-# Multiply 4x4 row vector (first arg) with 4xN column vector (remaining args).
+# Multiply 4x4 row vector arg1 with 4xN column vector (remaining args).
 #  Arg1 = 'a b c d  e f g h  i j k l  m n o p'
 #  Arg* = x0 y0 z0 1  x1 y1 z1 1  ...
 #
@@ -180,7 +204,7 @@ function matMult () {
 
 
 #
-# Multiply N 4x4 row vectors passed as non-grouped values
+# Multiply N 4x4 row vectors passed as non-grouped expanded args
 #  Args: a b c d  e f g h  i j k l  m n o p ...
 #
 function matMultXform () {
@@ -229,7 +253,7 @@ function matMultXform () {
 
 
 #
-# Given args: x y z 1  a b c 1  aa bb cc 1
+# Given args: x y z n   x' y' z' n'   x" y" z" n"
 # Which define two vectors starting at x y z,
 # Return true if the normal is facing viewer
 #
@@ -240,91 +264,57 @@ function isFacing () {
 
 
 function plotLines () {
-  local ch=$1; shift  ## character to plot
+  local glyph=$1
+  shift
   while [ 0 -lt $# ]; do
-    # Normalize
     x=$(($1/$4))
     y=$(($2/$4))
-    z=$(($3/$4))
-
     x1=$(($5/$8))
     y1=$(($6/$8))
-    z1=$(($7/$8))
-
-    [ 0 -lt $z ] && [ 0 -lt $z1 ] && {
-      line  $y $x $y1 $x1 "$ch"
-    }
+    terminalDrawLine  $y $x $y1 $x1 "$glyph"
     shift 8
   done
 }
 
 function plotPoly () {
   local x y z sx sy sz lx ly lz
-  local ch=$1; shift  ## character to plot
-
-   #Start point
-   x=$(($1/$4))
-   y=$(($2/$4))
-   #z=$(($3/$4))
-
-   sx=$x
-   sy=$y # remember this as last point
-   #sz=$z
-
-   lx=$x
-   ly=$y # last coordinate
-   #lz=$z
-
+  local glyph=$1
+  shift
+  fx=$(($1/$4)) # First point is also the last point to draw
+  fy=$(($2/$4))
+  lx=$fx
+  ly=$fy
   while [ 8 -le $# ] && shift 4; do
     x=$(($1/$4))
     y=$(($2/$4)) # next point
-    z=$(($3/$4))
-
-    #[ 0 -lt $lz ] && [ 0 -lt $z ] && {
-      line  $ly $lx $y $x "$ch"
-    #}
-    lx=$x
-    ly=$y # last point
-    #lz=$z
-
+    terminalDrawLine  $ly $lx $y $x "$glyph"
+    lx=$x # last point
+    ly=$y
   done
-  #[ 0 -lt $sz ] && [ 0 -lt $lz ] && {
-    line $ly $lx $sy $sx "$ch"
-  #}
+  terminalDrawLine $ly $lx $fy $fx "$glyph"
 }
 
 function plotPoints () {
-  local x y z ch i=0 ary="NOMINUM"
-  ch=$1; shift # character to plot
+  local x y z i=0 #ary="NOMINUM"
+  local  ch=$1 # character to plot
+  shift
   while [ 0 -lt $# ]; do
      # Normalize
      x=$(($1/$4))
      y=$(($2/$4))
-     z=$(($3/$4))
-     if [ 0 -lt $z ]; then
-       G2 $y $x ${ary:i:1}
-       #G2 $y $x \*
-       i=$((i+1))
-       [ $i -lt ${#ary} ] || i=0
-     fi
+     #terminalIsInScreen $x $y  &&  G2 $y $x ${ary:i%${#ary}:1}
+     terminalIsInScreen $x $y  &&  G2 $y $x $ch
+     i=$((i+1))
     shift 4
   done
 }
 
-function resetAnimals {
-  animal1=$(aoctopus)
-  animal2=$(aoctopus)
-  animal3=$(aoctopus)
-}
-resetAnimals
 
 
 # Object descriptor and vertex stores
-glables=()
+glabels=()
 gnormals=()
 gpoints=()
-
-r=20
 
 # Keep track of sets of points.  args: label char color type normal-pointes points...
 function makePoints {
@@ -335,37 +325,98 @@ function makePoints {
   gpoints=(${gpoints[@]} $*)
 }
 
-# These three non-displayed points define two vectors that
-# are used to compute the "is facing us" normal vector.
-normalBasis="-$r $r 0 1  $r $r 0 1  -$r -$r 0 1 "
 
 
-# Transformation matrices that orient a face to either of the 6 cube faces.
-matrixCubeFacea=$(matMultXform $(matRoty 0)  $(matTrans 0 0 -$r))
-matrixCubeFaceb=$(matMultXform $(matRoty 30) $(matTrans 0 0 -$r))
-matrixCubeFacec=$(matMultXform $(matRoty 60) $(matTrans 0 0 -$r))
-matrixCubeFaced=$(matMultXform $(matRoty 90) $(matTrans 0 0 -$r))
-matrixCubeFacee=$(matMultXform $(matRotx 30) $(matTrans 0 0 -$r))
-matrixCubeFacef=$(matMultXform $(matRotx 90) $(matTrans 0 0 -$r))
-
-box="$normalBasis   $r -$r 0 1    -$r -$r 0 1    -$r $r 0 1    $r $r 0 1 "
-
-boxa=$(matMult $matrixCubeFacea $box)
-boxb=$(matMult $matrixCubeFaceb $box)
-boxc=$(matMult $matrixCubeFacec $box)
-boxd=$(matMult $matrixCubeFaced $box)
-boxe=$(matMult $matrixCubeFacee $box)
-boxf=$(matMult $matrixCubeFacef $box)
+##
+## Globals
+##
+powerButton=true
+frame=0 # Final plotting scale
+startTime=$(($(date +%s)-1))
+matrixPerspective=$(matMultXform $(matPerspective 60) $(matTrans 0 0 150) $(matScale 2 2 2))
 
 
+##
+## Rendering and Scheduling
+##
+function renderobjectset {
+  while [ 0 -lt $# ]; do
+    read n c k t a b <<<${glabels[$1]}
+    shift
+    PC $k
+    case $t in 
+      (y) plotPoly   "$c" $(matMult $mat ${gpoints[*]:$a:$b-$a}) ;;
+      (l) plotLines  "$c" $(matMult $mat ${gpoints[*]:$a:$b-$a}) ;;
+      (p) plotPoints "$c" $(matMult $mat ${gpoints[*]:$a:$b-$a}) ;;
+    esac
+  done
+}
+
+function renderObjects {
+  [ $sec == 0 ] || [ "$1" == -resetCritters ] && resetCritters # Animal glyphs reset every minute or screen resize.
+  local mat=$(matMultXform $matrixPerspective $(matRotx $((-9))) $(matTrans 0 0 0) $(matRoty $((frame)) ) )
+  local norms=($(matMult $mat ${gnormals[@]}))
+  local ii count=0 facing=0 thread=0
+  for i in $(eval "echo {0..$((${#glabels[@]}-1))}"); do
+    if isFacing ${norms[@]:$i*12:12}; then
+      facing=$((facing+1))
+      count=$((count+1))
+      ii="$ii $i"
+      if [ 0 -lt $count ]; then # more things happen per thread the higher this number is
+        thread=$((thread+1))
+        renderobjectset $ii > "$thread" &
+        count=0
+        ii=""
+      fi
+    fi
+  done
+  [ 0 -lt $count ] && {
+    thread=$((thread+1))
+    renderobjectset $ii > "$thread" &
+  }
+  frameRate=$((100*frame/($(date +%s)-startTime)))
+  if [ $thread != 0 ]; then
+    wait # for all the rendering child processes to finish
+    printf "\e[2J"
+    cat $(eval "echo {1..$thread}")
+    PC 8 "\e[2Hframe:$frame\nfps:$((frameRate/100)).$((frameRate%100))\nobjs:$facing\nthreads:$thread"
+    rm  $(eval "echo {1..$thread}")
+  fi 
+  frame=$((frame+1))
+}
+
+
+##
+## Models
+##
 
 function buildClockCube {
+  local r=$1
+  local box="-$1 $1 0 1  $1 $1 0 1  -$1 -$1 0 1   $r -$r 0 1    -$r -$r 0 1    -$r $r 0 1    $r $r 0 1 "
+  # Transformation matrices that orient a face to either of the 6 cube faces.
+  local matrixCubeFacea=$(matMultXform $(matRoty 0)  $(matTrans 0 0 -$r))
+  local matrixCubeFaceb=$(matMultXform $(matRoty 30) $(matTrans 0 0 -$r))
+  local matrixCubeFacec=$(matMultXform $(matRoty 60) $(matTrans 0 0 -$r))
+  local matrixCubeFaced=$(matMultXform $(matRoty 90) $(matTrans 0 0 -$r))
+  local matrixCubeFacee=$(matMultXform $(matRotx 30) $(matTrans 0 0 -$r))
+  local matrixCubeFacef=$(matMultXform $(matRotx 90) $(matTrans 0 0 -$r))
+  local boxa=$(matMult $matrixCubeFacea $box)
+  local boxb=$(matMult $matrixCubeFaceb $box)
+  local boxc=$(matMult $matrixCubeFacec $box)
+  local boxd=$(matMult $matrixCubeFaced $box)
+  local boxe=$(matMult $matrixCubeFacee $box)
+  local boxf=$(matMult $matrixCubeFacef $box)
+  # These three non-displayed points define two vectors that
+  # are used to compute the "is facing us" normal vector.
+  function normalBasis {
+    echo "-$1 $1 0 1  $1 $1 0 1  -$1 -$1 0 1 "
+  }
   function makeHand { echo 0 $((-$1*r/10)) 0 1  0 $((-$2*r/10)) 0 1; }
-  twelve=$(echo  $normalBasis; makeHand 2 8)
-  myclock=$(echo $normalBasis; for s in 10 20 30 40 50 60 70 80 90 100 110; do matMult $(matRotz s) $(makeHand 2 7); done )
-  mymin=$(echo   $normalBasis; matMult $(matRotz              $min) $(makeHand 0 7))
-  myhour=$(echo  $normalBasis; matMult $(matRotz  $((hour+min/12))) $(makeHand 2 4))
-  mysec=$(echo   $normalBasis; matMult $(matRotz              $sec) $(makeHand 6 7))
+  twelve=$(echo  $(normalBasis $r); makeHand 2 8)
+  myclock=$(echo $(normalBasis $r); for s in 10 20 30 40 50 60 70 80 90 100 110; do matMult $(matRotz s) $(makeHand 2 7); done )
+  mymin=$(echo   $(normalBasis $r); matMult $(matRotz              $min) $(makeHand 0 7))
+  myhour=$(echo  $(normalBasis $r); matMult $(matRotz  $((hour+min/12))) $(makeHand 2 4))
+  mysec=$(echo   $(normalBasis $r); matMult $(matRotz              $sec) $(makeHand 6 7))
 
   makePoints A        \# 9 y $boxa
   makePoints clock    \. 8 l  $(matMult      $matrixCubeFacea $myclock)
@@ -410,13 +461,58 @@ function buildClockCube {
   makePoints handsec  $animal3 5  l $(matMult $matrixCubeFacef $mysec)
 }
 
+function buildBoxes {
+  r=$1
+  makePoints A        $animal1 9 y $(matMult $(matTrans 0 0 -$r) $boxa)
+  makePoints A        $animal1 9 y $(matMult $(matTrans 0 0 -$r) $boxb)
+  makePoints A        $animal1 9 y $(matMult $(matTrans 0 0 -$r) $boxc)
+  makePoints A        $animal1 9 y $(matMult $(matTrans 0 0 -$r) $boxd)
+  makePoints A        $animal1 9 y $(matMult $(matTrans 0 0 -$r) $boxe)
+  makePoints A        $animal1 9 y $(matMult $(matTrans 0 0 -$r) $boxf)
 
+  makePoints A        @ 4 y $(matMult $(matTrans 0 0 $r) $boxa)
+  makePoints A        @ 4 y $(matMult $(matTrans 0 0 $r) $boxb)
+  makePoints A        @ 4 y $(matMult $(matTrans 0 0 $r) $boxc)
+  makePoints A        @ 4 y $(matMult $(matTrans 0 0 $r) $boxd)
+  makePoints A        @ 4 y $(matMult $(matTrans 0 0 $r) $boxe)
+  makePoints A        @ 4 y $(matMult $(matTrans 0 0 $r) $boxf)
 
-function buildTexturedCube {
+  makePoints A        $animal3 5 y $(matMult $(matTrans 0 $r 0) $boxa)
+  makePoints A        $animal3 5 y $(matMult $(matTrans 0 $r 0) $boxb)
+  makePoints A        $animal3 5 y $(matMult $(matTrans 0 $r 0) $boxc)
+  makePoints A        $animal3 5 y $(matMult $(matTrans 0 $r 0) $boxd)
+  makePoints A        $animal3 5 y $(matMult $(matTrans 0 $r 0) $boxe)
+  makePoints A        $animal3 5 y $(matMult $(matTrans 0 $r 0) $boxf)
+
+  makePoints A        \# 8 y $(matMult $(matTrans 0 -$r 0) $boxa)
+  makePoints A        \# 8 y $(matMult $(matTrans 0 -$r 0) $boxb)
+  makePoints A        \# 8 y $(matMult $(matTrans 0 -$r 0) $boxc)
+  makePoints A        \# 8 y $(matMult $(matTrans 0 -$r 0) $boxd)
+  makePoints A        \# 8 y $(matMult $(matTrans 0 -$r 0) $boxe)
+  makePoints A        \# 8 y $(matMult $(matTrans 0 -$r 0) $boxf)
+
+  makePoints A        \# 6 y $(matMult $(matTrans -$r 0 0) $boxa)
+  makePoints A        \# 6 y $(matMult $(matTrans -$r 0 0) $boxb)
+  makePoints A        \# 6 y $(matMult $(matTrans -$r 0 0) $boxc)
+  makePoints A        \# 6 y $(matMult $(matTrans -$r 0 0) $boxd)
+  makePoints A        \# 6 y $(matMult $(matTrans -$r 0 0) $boxe)
+  makePoints A        \# 6 y $(matMult $(matTrans -$r 0 0) $boxf)
+
+  makePoints A        \# 6 y $(matMult $(matTrans $r 0 0) $boxa)
+  makePoints A        \# 6 y $(matMult $(matTrans $r 0 0) $boxb)
+  makePoints A        \# 6 y $(matMult $(matTrans $r 0 0) $boxc)
+  makePoints A        \# 6 y $(matMult $(matTrans $r 0 0) $boxd)
+  makePoints A        \# 6 y $(matMult $(matTrans $r 0 0) $boxe)
+  makePoints A        \# 6 y $(matMult $(matTrans $r 0 0) $boxf)
+}
+
+function buildTexturedCubes {
+  local r=$1 # radius of the cubes
+  local s=$2 # distance between cubes
+  local d=$3 # density of the cubes
   function buildTexturedFace {
-    echo $normalBasis
-    d=6
-    y=$((-r/d))
+    local  x  y=$((-r/d))
+    echo -$r $r 0 1   $r $r 0 1   -$r -$r 0 1
     while [ $y -le $((r/d)) ]; do
       x=$((-r/d))
       while [ $x -le $((r/d)) ]; do
@@ -426,110 +522,65 @@ function buildTexturedCube {
       y=$((y+1))
     done
   }
-  makePoints A a 4 p $(matMult $(matMultXform $(matTrans $1 $2 $3) $matrixCubeFacea) $(buildTexturedFace))
-  makePoints B b 5 p $(matMult $(matMultXform $(matTrans $1 $2 $3) $matrixCubeFaceb) $(buildTexturedFace))
-  makePoints C c 6 p $(matMult $(matMultXform $(matTrans $1 $2 $3) $matrixCubeFacec) $(buildTexturedFace))
-  makePoints D d 7 p $(matMult $(matMultXform $(matTrans $1 $2 $3) $matrixCubeFaced) $(buildTexturedFace))
-  makePoints E e 3 p $(matMult $(matMultXform $(matTrans $1 $2 $3) $matrixCubeFacee) $(buildTexturedFace))
-  makePoints F f 2 p $(matMult $(matMultXform $(matTrans $1 $2 $3) $matrixCubeFacef) $(buildTexturedFace))
-}
-
-
-
-#
-# Globals
-#
-powerButton=true
-frame=0 # Final plotting scale
-startTime=$(($(date +%s)-1))
-matrixPerspective=$(matMultXform $(matPerspective 40) $(matTrans 0 0 90) $(matScale 2 2 2))
-
-
-function renderobjectset {
-  while [ 0 -lt $# ]; do
-    read n c k t a b <<<${glabels[$1]}
-    shift
-    PC $k
-    case $t in 
-      (y) plotPoly   "$c" $(matMult $mat ${gpoints[*]:$a:$b-$a}) ;;
-      (l) plotLines  "$c" $(matMult $mat ${gpoints[*]:$a:$b-$a}) ;;
-      (p) plotPoints "$c" $(matMult $mat ${gpoints[*]:$a:$b-$a}) ;;
+  function buildFaceRotation {
+    case $1 in
+      ( 0 ) matMultXform $(matTrans $1 $2 $3) $(matRoty  0) $(matTrans 0 0 -$r) ;;
+      ( 1 ) matMultXform $(matTrans $1 $2 $3) $(matRoty 30) $(matTrans 0 0 -$r) ;;
+      ( 2 ) matMultXform $(matTrans $1 $2 $3) $(matRoty 60) $(matTrans 0 0 -$r) ;;
+      ( 3 ) matMultXform $(matTrans $1 $2 $3) $(matRoty 90) $(matTrans 0 0 -$r) ;;
+      ( 4 ) matMultXform $(matTrans $1 $2 $3) $(matRotx 30) $(matTrans 0 0 -$r) ;;
+      ( 5 ) matMultXform $(matTrans $1 $2 $3) $(matRotx 90) $(matTrans 0 0 -$r) ;;
     esac
-  done
-}
-
-function renderObjects {
-  [ $sec == 0 ] || [ "$1" == -resetAnimals ] && resetAnimals # Animal glyphs reset every minute or screen resize.
-  local mat=$(matMultXform $matrixPerspective $(matRotx $((frame/-9))) $(matTrans 0 1 0) $(matRoty $frame))
-  local norms=($(matMult $mat ${gnormals[@]}))
-  local ii count=0 facing=0 thread=0
-  for i in $(eval "echo {0..$((${#glabels[@]}-1))}"); do
-    if isFacing ${norms[@]:$i*12:12}; then
-      facing=$((facing+1))
-      count=$((count+1))
-      ii="$ii $i"
-      if [ 0 -lt $count ]; then # more things happen per thread the higher this number is
-        thread=$((thread+1))
-        renderobjectset $ii > "$thread" &
-        count=0
-        ii=""
-      fi
-    fi
-  done
-  [ 0 -lt $count ] && {
-    thread=$((thread+1))
-    renderobjectset $ii > "$thread" &
   }
-  frame=$((frame+1))
-  frameRate=$((100*frame/($(date +%s)-startTime)))
-  if [ $thread != 0 ]; then
-    wait # for all the rendering child processes to finish
-    P $CSI 2J
-    cat $(eval "echo {1..$thread}")
-    PC 8 "${CSI}Hframe:$frame\nfps:$((frameRate/100)).$((frameRate%100))\nobjs:$facing\nthreads:$thread"
-    rm  $(eval "echo {1..$thread}")
-  fi 
-}
+  function buildTexturedCube {
+    makePoints A o 4 p $(matMult $(buildFaceRotation 0 $1 $2 $3) $(buildTexturedFace))
+    makePoints B o 5 p $(matMult $(buildFaceRotation 1 $1 $2 $3) $(buildTexturedFace))
+    makePoints C o 6 p $(matMult $(buildFaceRotation 2 $1 $2 $3) $(buildTexturedFace))
+    makePoints D o 7 p $(matMult $(buildFaceRotation 3 $1 $2 $3) $(buildTexturedFace))
+    makePoints E o 3 p $(matMult $(buildFaceRotation 4 $1 $2 $3) $(buildTexturedFace))
+    makePoints F o 2 p $(matMult $(buildFaceRotation 5 $1 $2 $3) $(buildTexturedFace))
+  }
+  buildTexturedCube -$s  0   0
+  buildTexturedCube  $s  0   0
+  buildTexturedCube   0  $s  0
+  buildTexturedCube   0 -$s  0
+} # buildTexturedCubes 
 
 
 
-#
-# USAGE:  basciiclock [a|b] {frame count}
-#
+##
+## USAGE:  basciiclock [a|b] {frame count}
+##
 function main {
   function main_sigint { powerButton=false; }
-  function main_sigwinch { probeTerminal; renderObjects -resetAnimals; }
+  function main_sigwinch { terminalProbe; renderObjects -resetCritters; }
   framestop=${2:--1}
-  P $CSI?25l # Disable cursor
-  probeTerminal
-  resetAnimals
+  printf "\e[?25l" # Disable cursor
+  terminalProbe
+  resetCritters
   trap main_sigint   SIGINT
   trap main_sigwinch SIGWINCH
   case $1 in (a)
-    while $powerButton; do
-      if [ "$jiffy" != $(date +%s) ]; then
+    while $powerButton && [ $frame != $framestop ] ; do
+      # Recompute models.  They might be time dependent like a real-time analog clock.
+      if : || [ "$jiffy" != $(date +%s) ]; then
         jiffy=$(date +%s)
-        #probetime $(date -r $frame +'%H %M %S')
-        renderObjects
+        timeProbe # $((frame*483))
+        glabels=()
+        gnormals=()
+        gpoints=()
+        buildClockCube 30
       fi
-      sleep .9
+      renderObjects
     done
   ;; (b)
+    buildTexturedCubes 10 30 3
     while $powerButton && [ $frame != $framestop ] ; do
-      probetime $(date +'%H %M %S')
-      #buildTexturedCube -30   0 0
-      #buildTexturedCube  30   0 0
-      #buildTexturedCube   0 0  30
-      #buildTexturedCube   0 0 -30
-      # Recompute models.  They might be time dependent like a real-time analog clock.
-      glabels=()
-      gnormals=()
-      gpoints=()
-      buildClockCube
       renderObjects
     done
   ;; esac
+  printf "\e[?25h" # Enable cursor
 }
 
 #time main b 30 # Time run 60 frames
-main b # Run indefinitely or until ^C
+main a # Run indefinitely or until ^C
