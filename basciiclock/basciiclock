@@ -51,7 +51,6 @@ function timeProbe {
 }
 timeProbe $(date +'%H %M %S')
 
-
 ##
 ## Terminal stuff
 ##
@@ -547,10 +546,10 @@ function buildTexturedCubes {
 } # buildTexturedCubes 
 
 
-
 ##
 ## USAGE:  basciiclock [a|b] {frame count}
 ##
+once=true
 function main {
   function main_sigint { powerButton=false; }
   function main_sigwinch { terminalProbe; renderObjects -resetCritters; }
@@ -563,7 +562,8 @@ function main {
   case $1 in (a)
     while $powerButton && [ $frame != $framestop ] ; do
       # Recompute models.  They might be time dependent like a real-time analog clock.
-      if : || [ "$jiffy" != $(date +%s) ]; then
+      if $once && [ "$jiffy" != $(date +%s) ]; then
+        #once=false
         jiffy=$(date +%s)
         timeProbe # $((frame*483))
         glabels=()
