@@ -417,6 +417,8 @@ function buildClockCube {
   myhour=$(echo  $(normalBasis $r); matMult $(matRotz  $((hour+min/12))) $(makeHand 2 4))
   mysec=$(echo   $(normalBasis $r); matMult $(matRotz              $sec) $(makeHand 6 7))
 
+  #makePoints FLOOR    \# 4 y $(matMult $(matMultXform $(matRotx 30) $(matTrans 0 0 $r)) -55 55 0 1  55 55 0 1  -55 -55 0 1   55 -55 0 1    -55 -55 0 1    -55 55 0 1    55 55 0 1)
+
   makePoints A        \# 9 y $boxa
   makePoints clock    \. 8 l  $(matMult      $matrixCubeFacea $myclock)
   makePoints twelve   \. 15 l $(matMult      $matrixCubeFacea $twelve)
@@ -563,7 +565,7 @@ function main {
     while $powerButton && [ $frame != $framestop ] ; do
       # Recompute models.  They might be time dependent like a real-time analog clock.
       if $once && [ "$jiffy" != $(date +%s) ]; then
-        #once=false
+        once=false
         jiffy=$(date +%s)
         timeProbe # $((frame*483))
         glabels=()
