@@ -12,12 +12,20 @@
 ##  * Radian SINTABLE 120 in size
 ##  * Presume +Z extends beyond screen away from viewer.
 ##
-## Notes:
+## Arrays vs function arguments:
 ##
-##  Although you can pass an array as a symbolic reference to a function as 'ary[@]' then
-##  copy it locally with myary=(${!1}), it's faster just to pass the array around
-##  as an expanded list of values "${ary[*]}" and copied locally with myary=($1) or just
-##  used directly and consumed along with shift which seems to be the fastest.
+##  Although you can pass an array as a symbolic reference to a function as 'ary[@]'
+##  then copy it locally with myary=(${!1}), it's faster just to pass the array around
+##  as an expanded list of values "${ary[*]}" and copied locally with myary=($1) or
+##  just used directly and consumed along with shift which seems to be the fastest.
+##
+## Depth-buffer
+##
+##  Up until now the z coordinate has been ignored as a form of 2d projection.  Now it
+##  needs to be considered when determining depth for inclusion into the the z-buffer
+##  array.  The line drawing algorithm will just compute the z coordinate given either
+##  the x (slope between -1 and 1) or y (slope beyond -1 or 1).  There may be a DDA
+##  method that will be faster but for now this should suffice.
 
 
 ##
