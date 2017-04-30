@@ -384,8 +384,10 @@ function renderObjects {
   frameRate=$((100*frame/($(date +%s)-startTime)))
   if [ $thread != 0 ]; then
     wait # for all the rendering child processes to finish
-    printf "\e[2J"
-    cat $(eval "echo {1..$thread}")
+    printf $(
+      printf "\e[2J"
+      cat $(eval "echo {1..$thread}")
+    )
     PC 8 "\e[2Hframe:$frame\nfps:$((frameRate/100)).$((frameRate%100))\nobjs:$facing\nthreads:$thread"
     rm  $(eval "echo {1..$thread}")
   fi 
@@ -472,47 +474,61 @@ function buildClockCube {
 
 function buildBoxes {
   r=$1
-  makePoints A        $animal1 9 y $(matMult $(matTrans 0 0 -$r) $boxa)
-  makePoints A        $animal1 9 y $(matMult $(matTrans 0 0 -$r) $boxb)
-  makePoints A        $animal1 9 y $(matMult $(matTrans 0 0 -$r) $boxc)
-  makePoints A        $animal1 9 y $(matMult $(matTrans 0 0 -$r) $boxd)
-  makePoints A        $animal1 9 y $(matMult $(matTrans 0 0 -$r) $boxe)
-  makePoints A        $animal1 9 y $(matMult $(matTrans 0 0 -$r) $boxf)
+  d=$2
+  local box="-$1 $1 0 1  $1 $1 0 1  -$1 -$1 0 1   $r -$r 0 1    -$r -$r 0 1    -$r $r 0 1    $r $r 0 1 "
+  local matrixCubeFacea=$(matMultXform $(matRoty 0)  $(matTrans 0 0 -$r))
+  local matrixCubeFaceb=$(matMultXform $(matRoty 30) $(matTrans 0 0 -$r))
+  local matrixCubeFacec=$(matMultXform $(matRoty 60) $(matTrans 0 0 -$r))
+  local matrixCubeFaced=$(matMultXform $(matRoty 90) $(matTrans 0 0 -$r))
+  local matrixCubeFacee=$(matMultXform $(matRotx 30) $(matTrans 0 0 -$r))
+  local matrixCubeFacef=$(matMultXform $(matRotx 90) $(matTrans 0 0 -$r))
+  local boxa=$(matMult $matrixCubeFacea $box)
+  local boxb=$(matMult $matrixCubeFaceb $box)
+  local boxc=$(matMult $matrixCubeFacec $box)
+  local boxd=$(matMult $matrixCubeFaced $box)
+  local boxe=$(matMult $matrixCubeFacee $box)
+  local boxf=$(matMult $matrixCubeFacef $box)
+  makePoints A        $animal1 9 y $(matMult $(matTrans 0 0 -$d) $boxa)
+  makePoints A        $animal1 9 y $(matMult $(matTrans 0 0 -$d) $boxb)
+  makePoints A        $animal1 9 y $(matMult $(matTrans 0 0 -$d) $boxc)
+  makePoints A        $animal1 9 y $(matMult $(matTrans 0 0 -$d) $boxd)
+  makePoints A        $animal1 9 y $(matMult $(matTrans 0 0 -$d) $boxe)
+  makePoints A        $animal1 9 y $(matMult $(matTrans 0 0 -$d) $boxf)
 
-  makePoints A        @ 4 y $(matMult $(matTrans 0 0 $r) $boxa)
-  makePoints A        @ 4 y $(matMult $(matTrans 0 0 $r) $boxb)
-  makePoints A        @ 4 y $(matMult $(matTrans 0 0 $r) $boxc)
-  makePoints A        @ 4 y $(matMult $(matTrans 0 0 $r) $boxd)
-  makePoints A        @ 4 y $(matMult $(matTrans 0 0 $r) $boxe)
-  makePoints A        @ 4 y $(matMult $(matTrans 0 0 $r) $boxf)
+  makePoints A        @ 4 y $(matMult $(matTrans 0 0 $d) $boxa)
+  makePoints A        @ 4 y $(matMult $(matTrans 0 0 $d) $boxb)
+  makePoints A        @ 4 y $(matMult $(matTrans 0 0 $d) $boxc)
+  makePoints A        @ 4 y $(matMult $(matTrans 0 0 $d) $boxd)
+  makePoints A        @ 4 y $(matMult $(matTrans 0 0 $d) $boxe)
+  makePoints A        @ 4 y $(matMult $(matTrans 0 0 $d) $boxf)
 
-  makePoints A        $animal3 5 y $(matMult $(matTrans 0 $r 0) $boxa)
-  makePoints A        $animal3 5 y $(matMult $(matTrans 0 $r 0) $boxb)
-  makePoints A        $animal3 5 y $(matMult $(matTrans 0 $r 0) $boxc)
-  makePoints A        $animal3 5 y $(matMult $(matTrans 0 $r 0) $boxd)
-  makePoints A        $animal3 5 y $(matMult $(matTrans 0 $r 0) $boxe)
-  makePoints A        $animal3 5 y $(matMult $(matTrans 0 $r 0) $boxf)
+  makePoints A        $animal3 5 y $(matMult $(matTrans 0 $d 0) $boxa)
+  makePoints A        $animal3 5 y $(matMult $(matTrans 0 $d 0) $boxb)
+  makePoints A        $animal3 5 y $(matMult $(matTrans 0 $d 0) $boxc)
+  makePoints A        $animal3 5 y $(matMult $(matTrans 0 $d 0) $boxd)
+  makePoints A        $animal3 5 y $(matMult $(matTrans 0 $d 0) $boxe)
+  makePoints A        $animal3 5 y $(matMult $(matTrans 0 $d 0) $boxf)
 
-  makePoints A        \# 8 y $(matMult $(matTrans 0 -$r 0) $boxa)
-  makePoints A        \# 8 y $(matMult $(matTrans 0 -$r 0) $boxb)
-  makePoints A        \# 8 y $(matMult $(matTrans 0 -$r 0) $boxc)
-  makePoints A        \# 8 y $(matMult $(matTrans 0 -$r 0) $boxd)
-  makePoints A        \# 8 y $(matMult $(matTrans 0 -$r 0) $boxe)
-  makePoints A        \# 8 y $(matMult $(matTrans 0 -$r 0) $boxf)
+  makePoints A        \# 8 y $(matMult $(matTrans 0 -$d 0) $boxa)
+  makePoints A        \# 8 y $(matMult $(matTrans 0 -$d 0) $boxb)
+  makePoints A        \# 8 y $(matMult $(matTrans 0 -$d 0) $boxc)
+  makePoints A        \# 8 y $(matMult $(matTrans 0 -$d 0) $boxd)
+  makePoints A        \# 8 y $(matMult $(matTrans 0 -$d 0) $boxe)
+  makePoints A        \# 8 y $(matMult $(matTrans 0 -$d 0) $boxf)
 
-  makePoints A        \# 6 y $(matMult $(matTrans -$r 0 0) $boxa)
-  makePoints A        \# 6 y $(matMult $(matTrans -$r 0 0) $boxb)
-  makePoints A        \# 6 y $(matMult $(matTrans -$r 0 0) $boxc)
-  makePoints A        \# 6 y $(matMult $(matTrans -$r 0 0) $boxd)
-  makePoints A        \# 6 y $(matMult $(matTrans -$r 0 0) $boxe)
-  makePoints A        \# 6 y $(matMult $(matTrans -$r 0 0) $boxf)
+  makePoints A        \# 6 y $(matMult $(matTrans -$d 0 0) $boxa)
+  makePoints A        \# 6 y $(matMult $(matTrans -$d 0 0) $boxb)
+  makePoints A        \# 6 y $(matMult $(matTrans -$d 0 0) $boxc)
+  makePoints A        \# 6 y $(matMult $(matTrans -$d 0 0) $boxd)
+  makePoints A        \# 6 y $(matMult $(matTrans -$d 0 0) $boxe)
+  makePoints A        \# 6 y $(matMult $(matTrans -$d 0 0) $boxf)
 
-  makePoints A        \# 6 y $(matMult $(matTrans $r 0 0) $boxa)
-  makePoints A        \# 6 y $(matMult $(matTrans $r 0 0) $boxb)
-  makePoints A        \# 6 y $(matMult $(matTrans $r 0 0) $boxc)
-  makePoints A        \# 6 y $(matMult $(matTrans $r 0 0) $boxd)
-  makePoints A        \# 6 y $(matMult $(matTrans $r 0 0) $boxe)
-  makePoints A        \# 6 y $(matMult $(matTrans $r 0 0) $boxf)
+  makePoints A        \# 6 y $(matMult $(matTrans $d 0 0) $boxa)
+  makePoints A        \# 6 y $(matMult $(matTrans $d 0 0) $boxb)
+  makePoints A        \# 6 y $(matMult $(matTrans $d 0 0) $boxc)
+  makePoints A        \# 6 y $(matMult $(matTrans $d 0 0) $boxd)
+  makePoints A        \# 6 y $(matMult $(matTrans $d 0 0) $boxe)
+  makePoints A        \# 6 y $(matMult $(matTrans $d 0 0) $boxf)
 }
 
 function buildTexturedCubes {
@@ -584,7 +600,8 @@ function main {
       renderObjects
     done
   ;; (b)
-    buildTexturedCubes 10 30 3
+    buildBoxes 8 20
+    #buildTexturedCubes 10 30 3
     while $powerButton && [ $frame != $framestop ] ; do
       renderObjects
     done
@@ -593,4 +610,4 @@ function main {
 }
 
 #time main b 30 # Time run 60 frames
-main a # Run indefinitely or until ^C
+main b # Run indefinitely or until ^C
