@@ -446,7 +446,6 @@ function makePoints {
 ##
 powerButton=true
 frame=0 # Final plotting scale
-startTime=$(($(date +%s)-1))
 matrixPerspective=$(matMultXform $(matPerspective 40) $(matTrans 0 0 70) $(matScale 2 2 2))
 
 
@@ -473,55 +472,62 @@ function renderobjectset { # ARGS is list of object indices to render
   done
 }
 
-function renderObjects {
-  [ $sec == 0 ] || [ "$1" == -resetCritters ] && resetCritters # Animal glyphs reset every minute or screen resize.
-  local mat=$(matMultXform $matrixPerspective $(matRotx $((-9))) $(matTrans 0 0 0) $(matRoty $((frame)) ) )
+function scheduleRenderers {
+  # parent: facing thread
+  local mat=$(matMultXform $matrixPerspective $(matRotx $((-frame))) $(matTrans 0 0 0) $(matRoty $((frame)) ) )
   local norms=($(matMult $mat ${gnormals[@]}))
-  local ii count=0 facing=0 thread=0
-  for i in $(eval "echo {0..$((${#glabels[@]}-1))}"); do
-    if isFacing ${norms[@]:$i*12:12}; then
+  local objGroup=()
+  # over all objects, render facing in groups
+  for o in $(eval "echo {0..$((${#glabels[@]}-1))}"); do
+    if isFacing ${norms[@]:$o*12:12}; then
       facing=$((facing+1))
-      count=$((count+1))
-      ii="$ii $i"
-      if [ 0 -lt $count ]; then # more things happen per thread the higher this number is
+      objGroup[${#objGroup[*]}]=$o
+      if [ 2 -lt ${#objGroup[*]} ]; then # more things happen per thread the higher this number is
         thread=$((thread+1))
-        renderobjectset $ii > "$thread" &
-        count=0
-        ii=""
+        renderobjectset ${objGroup[*]} > "$thread" &
+        objGroup=()
       fi
     fi
   done
-  [ 0 -lt $count ] && {
+  [ 0 -lt ${#objGroup[*]} ] && {
     thread=$((thread+1))
-    renderobjectset $ii > "$thread" &
+    renderobjectset ${objGroup[*]} > "$thread" &
   }
-  frameRate=$((100*frame/($(date +%s)-startTime)))
+}
+
+function fillDepthBuffer {
+  # parent: thread
+  # clear the screen buffer
+  local depthBuffer=($(printf "%.s9999 " $(eval echo "{1..$((TWIDTH*THEIGHT))}")))
+  local idx
+  wait # for all the rendering child processes to finish
+  for i in $(eval "echo {1..$thread}"); do 
+    while read x y z k c; do
+      idx=$((x+y*TWIDTH))
+      if [ $z -lt ${depthBuffer[idx]} ]; then
+        buff[idx]="[${COLORS[k]}m$c"
+        depthBuffer[idx]=$z
+      fi
+    done <"$i"
+  done
+}
+
+function dumpStats {
+  # parent: facing thread
+  frameRate=$((100*frame/(SECONDS+1)))
+  PC 8 "\e[2Hframe:$frame\nfps:$((frameRate/100)).$((frameRate%100))\nobjs:$facing\nthreads:$thread"
+}
+
+function renderObjects {
+  [ $sec == 0 ] || [ "$1" == -resetCritters ] && resetCritters # Animal glyphs reset every minute or screen resize.
+  local facing=0 thread=0
+  scheduleRenderers # accesses: facing thread
   if [ $thread != 0 ]; then
-    wait # for all the rendering child processes to finish
-    # reset the screen buffer
     local buff=("${screenBufferEmpty[@]}")
-    local depthBuffer=($(printf "%.s9999 " $(eval echo "{1..$((TWIDTH*THEIGHT))}")))
-    local idx d
-    printf "\e[H"
-    for i in $(eval "echo {1..$thread}"); do 
-      while read x y z k c; do
-        #PC $k
-        #printf "\e[$y;${x}H$c"
-        idx=$((x+y*TWIDTH))
-#echo "thread=$i x=$x y=$y idx=$idx #depthBuffer=${#depthBuffer[*]}"
-        d=${depthBuffer[idx]}
-        if [ $z -lt $d ]; then
-          buff[idx]="[${COLORS[k]}m$c"
-          depthBuffer[idx]=$z
-        fi
-#if [ -z $d ]; then echo check file $thread; sleep 10; fi
-      done <"$i"
-    done
-    # dump scren buffer
-    IFS=''; echo -n "${buff[*]}"; unset IFS
-    # dump stats
-    PC 8 "\e[2Hframe:$frame\nfps:$((frameRate/100)).$((frameRate%100))\nobjs:$facing\nthreads:$thread"
-    rm  $(eval "echo {1..$thread}")
+    fillDepthBuffer # accesses: thread buff
+    IFS=''; echo -en '\e[H'; echo -n "${buff[*]}"; unset IFS # dump scren buffer
+    dumpStats # accesses: facing thread
+    rm $(eval "echo {1..$thread}") # Remove the files the rendering processes created
   fi 
   frame=$((frame+1))
 }
@@ -707,12 +713,24 @@ function buildTexturedCubes {
 
 
 ##
+## Sigwinch stuff
+##
+sigwinch=false
+function handleSigwinch {
+  sigwinch=false
+  terminalProbe
+  resetScreenBuffer
+  renderObjects -resetCritters
+}
+
+
+##
 ## USAGE:  basciiclock [a|b] {frame count}
 ##
 once=true
 function main {
   function main_sigint { powerButton=false; }
-  function main_sigwinch { terminalProbe; resetScreenBuffer; renderObjects -resetCritters; }
+  function main_sigwinch { sigwinch=true; }
   framestop=${2:--1}
   printf "\e[?25l" # Disable cursor
   terminalProbe
@@ -722,6 +740,7 @@ function main {
   trap main_sigwinch SIGWINCH
   case $1 in (a)
     while $powerButton && [ $frame != $framestop ] ; do
+      $sigwinch && handleSigwinch 
       # Recompute models.  They might be time dependent like a real-time analog clock.
       if $once && [ "$jiffy" != $(date +%s) ]; then
         once=false
@@ -735,10 +754,11 @@ function main {
       renderObjects
     done
   ;; (b)
-    #buildBoxes 8 30
-    buildTexturedCubes 10 25 2
+    buildBoxes 8 30
+    #buildTexturedCubes 10 35 1
     #dumpDescriptors 30 30 30 
     while $powerButton && [ $frame != $framestop ] ; do
+      $sigwinch && handleSigwinch 
       renderObjects
     done
   ;; esac
@@ -746,4 +766,4 @@ function main {
 }
 
 #time main b 30 # Time run 60 frames
-main a # Run indefinitely or until ^C
+main ${1:-b} # Run indefinitely or until ^C
