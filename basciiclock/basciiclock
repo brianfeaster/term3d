@@ -26,6 +26,12 @@
 ##  array.  The line drawing algorithm will just compute the z coordinate given either
 ##  the x (slope between -1 and 1) or y (slope beyond -1 or 1).  There may be a DDA
 ##  method that will be faster but for now this should suffice.
+##
+## Frame-Buffer
+##
+##  The terminal can't be written to directly now.  Instead the 3d coordinates (and
+##  character) will will be emitted to be parsed later on and wirtten to the screen,
+##  taking into account  the depth buffer.
 
 
 ##
@@ -85,7 +91,7 @@ function terminalProbe {
 function terminalIsInScreen { # ARGS: x y
   local x=$(($1+TWIDTH2))
   local y=$(($2+THEIGHT2))
-  if [ $x -lt 1 ] || [ $y -lt 1 ] || [ $TWIDTH -lt $x ] || [ $THEIGHT -lt $y ]; then
+  if [ $x -lt 0 ] || [ $y -lt 0 ] || [ $TWIDTH -le $x ] || [ $THEIGHT -le $y ]; then
     return 1
   fi
   return 0
@@ -94,6 +100,91 @@ function terminalIsInScreen { # ARGS: x y
 function G2 { printf "\e[$(($1+THEIGHT2));$(($2+TWIDTH2))H$3"; }
 
 function terminalDrawLine {
+  local x y m n d dx dy w ws nx ny yyxx e i
+  local z=$5
+  local kl=$6
+  local ch=$7
+  # Make sure line is drawn from left -x to right +x in the temrinal.
+  if [ $2 -le $4 ]; then
+    x=$2; y=$1; m=$4; n=$3
+  else
+    x=$4; y=$3; m=$2; n=$1
+  fi
+  # (x,y) to (m,n) will always go left to right
+  dx=$((m-x))
+  if [ $1 -lt $3 ]; then dy=$(($3-$1)); else dy=$(($1-$3)); fi
+
+  # Always walk or walk-step
+
+  if [ $dy -lt $dx ]; then # Small slope so walk left and step up or down
+    w=''; xwi=1;  ywi=0
+    if [ $y -lt $n ]; then # walk right and down
+       ws=$'\v'; xwsi=1; ywsi=1
+    else                   # walk right and up
+       ws=$'\eM'; xwsi=1; ywsi=-1
+    fi
+    nx=$dx
+    ny=$dy
+  else # Large slope, so walk up or down and step right
+    if [ $y -lt $n ]; then # walk down and right
+       w=$'\b\v'; xwi=0; ywi=1
+       ws=$'\v'; xwsi=1; ywsi=1
+    else                   # walk up and right
+       w=$'\b\eM'; xwi=0; ywi=-1
+       ws=$'\eM'; xwsi=1; ywsi=-1
+    fi
+    nx=$dy
+    ny=$dx
+  fi
+
+  # Valid state when drawing lines on the terminal
+  #  0 = out
+  #  1 = in
+  local state=0
+
+  yy=$((ny + ny))
+  yyxx=$((yy - nx - nx))
+  e=$((yy - nx))
+  i=$nx
+
+  while [ 0 -lt $i ]; do
+    if [ 0 -le $e ]; then # above mid-point
+      if [ $state == 1 ]; then
+        if terminalIsInScreen $x $y; then # done if out of screen
+          echo "$((x+TWIDTH2)) $((y+THEIGHT2)) $z $kl $ch"
+        else
+           return 0
+        fi
+      else # state == 0
+        if terminalIsInScreen $x $y; then
+          state=1
+          echo "$((x+TWIDTH2)) $((y+THEIGHT2)) $z $kl $ch"
+        fi
+      fi
+      x=$((x+xwsi)); y=$((y+ywsi))
+      e=$((e + yyxx))
+    else # below mid-point
+      if [ $state == 1 ]; then
+        if terminalIsInScreen $x $y; then  # done if out of screen
+          echo "$((x+TWIDTH2)) $((y+THEIGHT2)) $z $kl $ch"
+        else
+          return 0
+        fi
+      else # state == 0
+        if terminalIsInScreen $x $y; then 
+          state=1
+          echo "$((x+TWIDTH2)) $((y+THEIGHT2)) $z $kl $ch"
+        fi
+      fi
+      x=$((x+xwi)); y=$((y+ywi))
+      e=$((e + yy))
+    fi
+    i=$((i-1))
+  done
+}
+
+
+function terminalDrawLineDirect {
   local x y m n d dx dy w ws nx ny yyxx e i
   # Make sure line is drawn from left -x to right +x in the temrinal.
   if [ $2 -le $4 ]; then
@@ -177,6 +268,7 @@ function terminalDrawLine {
 ## Debugging
 ##
 dv   (){ while [ 0 -lt $# ]; do printf '[%6d %6d %6d %6d]\n' $1 $2 $3 $4; shift 4; done; }
+dvgl (){ while [ 0 -lt $# ]; do printf "($2 $3 $4 $5 $6)\n"; shift 6; done; }
 dvn  (){ while [ 0 -lt $# ]; do printf '[%6d %6d %6d %6d | %6d]\n' $(($1/$4)) $(($2/$4)) $(($3/$4)) $(($4/$4)) $4; shift 4; done; }
 dm4  (){ printf '[%6d %6d %6d %6d]\n' $1 $2 $3 $4 $5 $6 $7 $8 $9 ${10} ${11} ${12} ${13} ${14} ${15} ${16}; }
 COLORS=('0' '0;31' '0;32' '0;33' '0;34' '0;35' '0;36' '0;37' '1;30' '1;31' '1;32' '1;33' '1;34' '1;35' '1;36' '1;37')
@@ -271,47 +363,53 @@ function isFacing () {
 
 
 function plotLines () {
-  local glyph=$1
-  shift
+  local color=$1
+  local glyph=$2
+  shift 2
   while [ 0 -lt $# ]; do
     x=$(($1/$4))
     y=$(($2/$4))
+    z=$(($3/$4))
     x1=$(($5/$8))
     y1=$(($6/$8))
-    terminalDrawLine  $y $x $y1 $x1 "$glyph"
+    terminalDrawLine  $y $x $y1 $x1 $z $color $glyph
     shift 8
   done
 }
 
 function plotPoly () {
   local x y z sx sy sz lx ly lz
-  local glyph=$1
-  shift
+  local color=$1
+  local glyph=$2
+  shift 2
   fx=$(($1/$4)) # First point is also the last point to draw
   fy=$(($2/$4))
+  fz=$(($3/$4)) # TODO for now, keep track of this z for the z-buffer
   lx=$fx
   ly=$fy
   while [ 8 -le $# ] && shift 4; do
     x=$(($1/$4))
     y=$(($2/$4)) # next point
-    terminalDrawLine  $ly $lx $y $x "$glyph"
+    terminalDrawLine  $ly $lx $y $x $fz $color $glyph
     lx=$x # last point
     ly=$y
   done
-  terminalDrawLine $ly $lx $fy $fx "$glyph"
+  terminalDrawLine $ly $lx $fy $fx $fz $color $glyph
 }
 
 function plotPoints () {
-  local x y z i=0 #ary="NOMINUM"
-  local  ch=$1 # character to plot
-  shift
+  local x y z # i=0 ary="NOMINUM"
+  local kl=$1
+  local ch=$2 # character to plot
+  shift 2
   while [ 0 -lt $# ]; do
      # Normalize
      x=$(($1/$4))
      y=$(($2/$4))
+     z=$(($3/$4))
      #terminalIsInScreen $x $y  &&  G2 $y $x ${ary:i%${#ary}:1}
-     terminalIsInScreen $x $y  &&  G2 $y $x $ch
-     i=$((i+1))
+     terminalIsInScreen $x $y && echo "$((x+TWIDTH2)) $((y+THEIGHT2)) $z $kl $ch"
+     #i=$((i+1))
     shift 4
   done
 }
@@ -322,6 +420,15 @@ function plotPoints () {
 glabels=()
 gnormals=()
 gpoints=()
+
+function dumpDescriptors { # ARGS: {seconds to sleep}{3}
+  dvgl ${glabels[*]}
+  sleep ${1:-60}
+  dv ${gnormals[*]}
+  sleep ${2:-60}
+  dv ${gpoints[*]}
+  sleep ${3:-60}
+}
 
 # Keep track of sets of points.  args: label char color type normal-pointes points...
 function makePoints {
@@ -340,21 +447,28 @@ function makePoints {
 powerButton=true
 frame=0 # Final plotting scale
 startTime=$(($(date +%s)-1))
-matrixPerspective=$(matMultXform $(matPerspective 60) $(matTrans 0 0 150) $(matScale 2 2 2))
+matrixPerspective=$(matMultXform $(matPerspective 40) $(matTrans 0 0 70) $(matScale 2 2 2))
 
 
 ##
 ## Rendering and Scheduling
 ##
-function renderobjectset {
+screenBufferEmpty=()
+function resetScreenBuffer {
+  screenBufferEmpty=()
+  for i in $(eval echo "{1..$((TWIDTH*THEIGHT))}"); do
+    screenBufferEmpty[i]=' '
+  done
+}
+
+function renderobjectset { # ARGS is list of object indices to render
   while [ 0 -lt $# ]; do
-    read n c k t a b <<<${glabels[$1]}
+    read n c k t a b <<< ${glabels[$1]}
     shift
-    PC $k
     case $t in 
-      (y) plotPoly   "$c" $(matMult $mat ${gpoints[*]:$a:$b-$a}) ;;
-      (l) plotLines  "$c" $(matMult $mat ${gpoints[*]:$a:$b-$a}) ;;
-      (p) plotPoints "$c" $(matMult $mat ${gpoints[*]:$a:$b-$a}) ;;
+      (y) plotPoly   "$k" "$c" $(matMult $mat ${gpoints[*]:$a:$b-$a}) ;;
+      (l) plotLines  "$k" "$c" $(matMult $mat ${gpoints[*]:$a:$b-$a}) ;;
+      (p) plotPoints "$k" "$c" $(matMult $mat ${gpoints[*]:$a:$b-$a}) ;;
     esac
   done
 }
@@ -384,10 +498,28 @@ function renderObjects {
   frameRate=$((100*frame/($(date +%s)-startTime)))
   if [ $thread != 0 ]; then
     wait # for all the rendering child processes to finish
-    printf $(
-      printf "\e[2J"
-      cat $(eval "echo {1..$thread}")
-    )
+    # reset the screen buffer
+    local buff=("${screenBufferEmpty[@]}")
+    local depthBuffer=($(printf "%.s9999 " $(eval echo "{1..$((TWIDTH*THEIGHT))}")))
+    local idx d
+    printf "\e[H"
+    for i in $(eval "echo {1..$thread}"); do 
+      while read x y z k c; do
+        #PC $k
+        #printf "\e[$y;${x}H$c"
+        idx=$((x+y*TWIDTH))
+#echo "thread=$i x=$x y=$y idx=$idx #depthBuffer=${#depthBuffer[*]}"
+        d=${depthBuffer[idx]}
+        if [ $z -lt $d ]; then
+          buff[idx]="[${COLORS[k]}m$c"
+          depthBuffer[idx]=$z
+        fi
+#if [ -z $d ]; then echo check file $thread; sleep 10; fi
+      done <"$i"
+    done
+    # dump scren buffer
+    IFS=''; echo -n "${buff[*]}"; unset IFS
+    # dump stats
     PC 8 "\e[2Hframe:$frame\nfps:$((frameRate/100)).$((frameRate%100))\nobjs:$facing\nthreads:$thread"
     rm  $(eval "echo {1..$thread}")
   fi 
@@ -422,7 +554,7 @@ function buildClockCube {
   }
   function makeHand { echo 0 $((-$1*r/10)) 0 1  0 $((-$2*r/10)) 0 1; }
   twelve=$(echo  $(normalBasis $r); makeHand 2 8)
-  myclock=$(echo $(normalBasis $r); for s in 10 20 30 40 50 60 70 80 90 100 110; do matMult $(matRotz s) $(makeHand 2 7); done )
+  myclock=$(echo $(normalBasis $r); for s in 10 20 30 40 50 60 70 80 90 100 110; do matMult $(matMultXform $(matRotz s) $(matTrans 0 0 1)) $(makeHand 2 7); done )
   mymin=$(echo   $(normalBasis $r); matMult $(matRotz              $min) $(makeHand 0 7))
   myhour=$(echo  $(normalBasis $r); matMult $(matRotz  $((hour+min/12))) $(makeHand 2 4))
   mysec=$(echo   $(normalBasis $r); matMult $(matRotz              $sec) $(makeHand 6 7))
@@ -473,9 +605,9 @@ function buildClockCube {
 }
 
 function buildBoxes {
-  r=$1
-  d=$2
-  local box="-$1 $1 0 1  $1 $1 0 1  -$1 -$1 0 1   $r -$r 0 1    -$r -$r 0 1    -$r $r 0 1    $r $r 0 1 "
+  local r=$1
+  local d=$2
+  local box="-$r $r 0 1  $r $r 0 1  -$r -$r 0 1   $r -$r 0 1    -$r -$r 0 1    -$r $r 0 1    $r $r 0 1 "
   local matrixCubeFacea=$(matMultXform $(matRoty 0)  $(matTrans 0 0 -$r))
   local matrixCubeFaceb=$(matMultXform $(matRoty 30) $(matTrans 0 0 -$r))
   local matrixCubeFacec=$(matMultXform $(matRoty 60) $(matTrans 0 0 -$r))
@@ -488,47 +620,49 @@ function buildBoxes {
   local boxd=$(matMult $matrixCubeFaced $box)
   local boxe=$(matMult $matrixCubeFacee $box)
   local boxf=$(matMult $matrixCubeFacef $box)
-  makePoints A        $animal1 9 y $(matMult $(matTrans 0 0 -$d) $boxa)
-  makePoints A        $animal1 9 y $(matMult $(matTrans 0 0 -$d) $boxb)
-  makePoints A        $animal1 9 y $(matMult $(matTrans 0 0 -$d) $boxc)
-  makePoints A        $animal1 9 y $(matMult $(matTrans 0 0 -$d) $boxd)
-  makePoints A        $animal1 9 y $(matMult $(matTrans 0 0 -$d) $boxe)
-  makePoints A        $animal1 9 y $(matMult $(matTrans 0 0 -$d) $boxf)
+  local c=(@ @ @ @ @ @)
 
-  makePoints A        @ 4 y $(matMult $(matTrans 0 0 $d) $boxa)
-  makePoints A        @ 4 y $(matMult $(matTrans 0 0 $d) $boxb)
-  makePoints A        @ 4 y $(matMult $(matTrans 0 0 $d) $boxc)
-  makePoints A        @ 4 y $(matMult $(matTrans 0 0 $d) $boxd)
-  makePoints A        @ 4 y $(matMult $(matTrans 0 0 $d) $boxe)
-  makePoints A        @ 4 y $(matMult $(matTrans 0 0 $d) $boxf)
+  makePoints A        ${c[0]} 2 y $(matMult $(matTrans 0 0 -$d) $boxa)
+  makePoints A        ${c[0]} 2 y $(matMult $(matTrans 0 0 -$d) $boxb)
+  makePoints A        ${c[0]} 2 y $(matMult $(matTrans 0 0 -$d) $boxc)
+  makePoints A        ${c[0]} 2 y $(matMult $(matTrans 0 0 -$d) $boxd)
+  makePoints A        ${c[0]} 2 y $(matMult $(matTrans 0 0 -$d) $boxe)
+  makePoints A        ${c[0]} 2 y $(matMult $(matTrans 0 0 -$d) $boxf)
 
-  makePoints A        $animal3 5 y $(matMult $(matTrans 0 $d 0) $boxa)
-  makePoints A        $animal3 5 y $(matMult $(matTrans 0 $d 0) $boxb)
-  makePoints A        $animal3 5 y $(matMult $(matTrans 0 $d 0) $boxc)
-  makePoints A        $animal3 5 y $(matMult $(matTrans 0 $d 0) $boxd)
-  makePoints A        $animal3 5 y $(matMult $(matTrans 0 $d 0) $boxe)
-  makePoints A        $animal3 5 y $(matMult $(matTrans 0 $d 0) $boxf)
+  makePoints A        ${c[1]} 4 y $(matMult $(matTrans 0 0 $d) $boxa)
+  makePoints A        ${c[1]} 4 y $(matMult $(matTrans 0 0 $d) $boxb)
+  makePoints A        ${c[1]} 4 y $(matMult $(matTrans 0 0 $d) $boxc)
+  makePoints A        ${c[1]} 4 y $(matMult $(matTrans 0 0 $d) $boxd)
+  makePoints A        ${c[1]} 4 y $(matMult $(matTrans 0 0 $d) $boxe)
+  makePoints A        ${c[1]} 4 y $(matMult $(matTrans 0 0 $d) $boxf)
 
-  makePoints A        \# 8 y $(matMult $(matTrans 0 -$d 0) $boxa)
-  makePoints A        \# 8 y $(matMult $(matTrans 0 -$d 0) $boxb)
-  makePoints A        \# 8 y $(matMult $(matTrans 0 -$d 0) $boxc)
-  makePoints A        \# 8 y $(matMult $(matTrans 0 -$d 0) $boxd)
-  makePoints A        \# 8 y $(matMult $(matTrans 0 -$d 0) $boxe)
-  makePoints A        \# 8 y $(matMult $(matTrans 0 -$d 0) $boxf)
+  makePoints A        ${c[2]} 5 y $(matMult $(matTrans 0 $d 0) $boxa)
+  makePoints A        ${c[2]} 5 y $(matMult $(matTrans 0 $d 0) $boxb)
+  makePoints A        ${c[2]} 5 y $(matMult $(matTrans 0 $d 0) $boxc)
+  makePoints A        ${c[2]} 5 y $(matMult $(matTrans 0 $d 0) $boxd)
+  makePoints A        ${c[2]} 5 y $(matMult $(matTrans 0 $d 0) $boxe)
+  makePoints A        ${c[2]} 5 y $(matMult $(matTrans 0 $d 0) $boxf)
 
-  makePoints A        \# 6 y $(matMult $(matTrans -$d 0 0) $boxa)
-  makePoints A        \# 6 y $(matMult $(matTrans -$d 0 0) $boxb)
-  makePoints A        \# 6 y $(matMult $(matTrans -$d 0 0) $boxc)
-  makePoints A        \# 6 y $(matMult $(matTrans -$d 0 0) $boxd)
-  makePoints A        \# 6 y $(matMult $(matTrans -$d 0 0) $boxe)
-  makePoints A        \# 6 y $(matMult $(matTrans -$d 0 0) $boxf)
+  makePoints A        ${c[3]} 8 y $(matMult $(matTrans 0 -$d 0) $boxa)
+  makePoints A        ${c[3]} 8 y $(matMult $(matTrans 0 -$d 0) $boxb)
+  makePoints A        ${c[3]} 8 y $(matMult $(matTrans 0 -$d 0) $boxc)
+  makePoints A        ${c[3]} 8 y $(matMult $(matTrans 0 -$d 0) $boxd)
+  makePoints A        ${c[3]} 8 y $(matMult $(matTrans 0 -$d 0) $boxe)
+  makePoints A        ${c[3]} 8 y $(matMult $(matTrans 0 -$d 0) $boxf)
 
-  makePoints A        \# 6 y $(matMult $(matTrans $d 0 0) $boxa)
-  makePoints A        \# 6 y $(matMult $(matTrans $d 0 0) $boxb)
-  makePoints A        \# 6 y $(matMult $(matTrans $d 0 0) $boxc)
-  makePoints A        \# 6 y $(matMult $(matTrans $d 0 0) $boxd)
-  makePoints A        \# 6 y $(matMult $(matTrans $d 0 0) $boxe)
-  makePoints A        \# 6 y $(matMult $(matTrans $d 0 0) $boxf)
+  makePoints A        ${c[4]} 6 y $(matMult $(matTrans -$d 0 0) $boxa)
+  makePoints A        ${c[4]} 6 y $(matMult $(matTrans -$d 0 0) $boxb)
+  makePoints A        ${c[4]} 6 y $(matMult $(matTrans -$d 0 0) $boxc)
+  makePoints A        ${c[4]} 6 y $(matMult $(matTrans -$d 0 0) $boxd)
+  makePoints A        ${c[4]} 6 y $(matMult $(matTrans -$d 0 0) $boxe)
+  makePoints A        ${c[4]} 6 y $(matMult $(matTrans -$d 0 0) $boxf)
+
+  makePoints A        ${c[5]} 1 y $(matMult $(matTrans $d 0 0) $boxa)
+  makePoints A        ${c[5]} 1 y $(matMult $(matTrans $d 0 0) $boxb)
+  makePoints A        ${c[5]} 1 y $(matMult $(matTrans $d 0 0) $boxc)
+  makePoints A        ${c[5]} 1 y $(matMult $(matTrans $d 0 0) $boxd)
+  makePoints A        ${c[5]} 1 y $(matMult $(matTrans $d 0 0) $boxe)
+  makePoints A        ${c[5]} 1 y $(matMult $(matTrans $d 0 0) $boxf)
 }
 
 function buildTexturedCubes {
@@ -558,12 +692,12 @@ function buildTexturedCubes {
     esac
   }
   function buildTexturedCube {
-    makePoints A o 4 p $(matMult $(buildFaceRotation 0 $1 $2 $3) $(buildTexturedFace))
-    makePoints B o 5 p $(matMult $(buildFaceRotation 1 $1 $2 $3) $(buildTexturedFace))
-    makePoints C o 6 p $(matMult $(buildFaceRotation 2 $1 $2 $3) $(buildTexturedFace))
-    makePoints D o 7 p $(matMult $(buildFaceRotation 3 $1 $2 $3) $(buildTexturedFace))
-    makePoints E o 3 p $(matMult $(buildFaceRotation 4 $1 $2 $3) $(buildTexturedFace))
-    makePoints F o 2 p $(matMult $(buildFaceRotation 5 $1 $2 $3) $(buildTexturedFace))
+    makePoints A 1 1 p $(matMult $(buildFaceRotation 0 $1 $2 $3) $(buildTexturedFace))
+    makePoints B 2 2 p $(matMult $(buildFaceRotation 1 $1 $2 $3) $(buildTexturedFace))
+    makePoints C 3 3 p $(matMult $(buildFaceRotation 2 $1 $2 $3) $(buildTexturedFace))
+    makePoints D 4 4 p $(matMult $(buildFaceRotation 3 $1 $2 $3) $(buildTexturedFace))
+    makePoints E 5 5 p $(matMult $(buildFaceRotation 4 $1 $2 $3) $(buildTexturedFace))
+    makePoints F 6 6 p $(matMult $(buildFaceRotation 5 $1 $2 $3) $(buildTexturedFace))
   }
   buildTexturedCube -$s  0   0
   buildTexturedCube  $s  0   0
@@ -578,10 +712,11 @@ function buildTexturedCubes {
 once=true
 function main {
   function main_sigint { powerButton=false; }
-  function main_sigwinch { terminalProbe; renderObjects -resetCritters; }
+  function main_sigwinch { terminalProbe; resetScreenBuffer; renderObjects -resetCritters; }
   framestop=${2:--1}
   printf "\e[?25l" # Disable cursor
   terminalProbe
+  resetScreenBuffer
   resetCritters
   trap main_sigint   SIGINT
   trap main_sigwinch SIGWINCH
@@ -595,13 +730,14 @@ function main {
         glabels=()
         gnormals=()
         gpoints=()
-        buildClockCube 30
+        buildClockCube 20
       fi
       renderObjects
     done
   ;; (b)
-    buildBoxes 8 20
-    #buildTexturedCubes 10 30 3
+    #buildBoxes 8 30
+    buildTexturedCubes 10 25 2
+    #dumpDescriptors 30 30 30 
     while $powerButton && [ $frame != $framestop ] ; do
       renderObjects
     done
@@ -610,4 +746,4 @@ function main {
 }
 
 #time main b 30 # Time run 60 frames
-main b # Run indefinitely or until ^C
+main a # Run indefinitely or until ^C
