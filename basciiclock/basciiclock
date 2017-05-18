@@ -53,6 +53,7 @@ COSTABLE=(120 120 119 119 117 116 114 112 110 107 104 101 97 93 89 85 80 75 70 6
 COSTABLEI=(-120 -120 -119 -119 -117 -116 -114 -112 -110 -107 -104 -101 -97 -93 -89 -85 -80 -75 -70 -65 -60 -54 -49 -43 -37 -31 -25 -18 -12 -6 0 6 12 18 25 31 37 43 49 54 60 65 70 75 80 85 89 93 97 101 104 107 110 112 114 116 117 119 119 120 120 120 119 119 117 116 114 112 110 107 104 101 97 93 89 85 80 75 70 65 60 54 49 43 37 31 25 18 12 6 0 -6 -12 -18 -25 -31 -37 -43 -49 -54 -60 -65 -70 -75 -80 -85 -89 -93 -97 -101 -104 -107 -110 -112 -114 -116 -117 -119 -119 -120)
 
 
+
 ##
 ## Time stuff
 ##
@@ -74,6 +75,8 @@ function timeProbe {
   sec=$((10#$s * 2))
 }
 timeProbe $(date +'%H %M %S')
+
+
 
 ##
 ## Terminal stuff
@@ -274,6 +277,7 @@ function terminalDrawLineDirect {
 }
 
 
+
 ##
 ## Debugging
 ##
@@ -326,7 +330,7 @@ objects=() #( label type color char idxCount idx... ...)
 
 function objectsLength { : || complicated;  }
 
-function objectsAdd { # Args: label type color char count idx...
+function objectsAdd { # Args: label type color char count normIdx{3} idx...
   local len=${#objects[*]}
   objects[len+0]=$1 # label
   objects[len+1]=$2 # type
@@ -442,12 +446,12 @@ function matMultXform () {
 # Return true if the normal is facing viewer
 #
 function isFacing () {
-  local zx=$(($1/$4)) zy=$(($2/$4))
-  [ $((($5/$8-zx)*(${10}/${12}-zy) - ($6/$8-zy)*($9/${12}-zx))) -lt 0 ]
+  local zx=$((10*$1/$4)) zy=$((10*$2/$4))
+  [ $(((10*$5/$8-zx)*(10*${10}/${12}-zy) - (10*$6/$8-zy)*(10*$9/${12}-zx))) -le 0 ]
 }
 
 
-function matMultLocal {
+function matMultLocal { # Caller:(vx vy vz vn) => Caller:(x y z n)
   x=$((mat[0]*vx+mat[1]*vy+mat[2]*vz+mat[3]*vn))
   y=$((mat[4]*vx+mat[5]*vy+mat[6]*vz+mat[7]*vn))
   z=$((mat[8]*vx+mat[9]*vy+mat[10]*vz+mat[11]*vn))
@@ -455,7 +459,7 @@ function matMultLocal {
 }
 
 function plotLines () {
-  local idx=$oi vi vx vy vz vn a b c x y z n
+  local idx=$((oi+3)) vi vx vy vz vn a b c x y z n
   while [ $idx -lt $last ]; do # over every vector index in object
     vi=${objects[idx]}
     vx=${vectors[$vi*4]}
@@ -502,15 +506,44 @@ function plotPoly () {
 }
 
 function plotPoints () {
-  local idx=$oi vi vx vy vz vn x y z n
+  local idx=$((oi)) vi vx vy vz vn vx x y z n
+  local nx0 ny0 nz0 nn0
+  local nx1 ny1 nz1 nn1
+  local nx2 ny2 nz2 nn2
+
+  vi=${objects[idx]}
+  vx=${vectors[$vi*4]}
+  vy=${vectors[$vi*4+1]}
+  vz=${vectors[$vi*4+2]}
+  vn=${vectors[$vi*4+3]}
+  matMultLocal; nx0=$x; ny0=$y; nz0=$z; nn0=$n
+
+  vi=${objects[idx+1]}
+  vx=${vectors[$vi*4]}
+  vy=${vectors[$vi*4+1]}
+  vz=${vectors[$vi*4+2]}
+  vn=${vectors[$vi*4+3]}
+  matMultLocal; nx1=$x; ny1=$y; nz1=$z; nn1=$n
+
+  vi=${objects[idx+2]}
+  vx=${vectors[$vi*4]}
+  vy=${vectors[$vi*4+1]}
+  vz=${vectors[$vi*4+2]}
+  vn=${vectors[$vi*4+3]}
+  matMultLocal; nx2=$x; ny2=$y; nz2=$z; nn2=$n
+
+  isFacing $nx0 $ny0 $nz0 $nn0  $nx1 $ny1 $nz1 $nn1  $nx2 $ny2 $nz2 $nn2 || return
+
+  idx=$((oi+3))
+
   while [ $idx -lt $last ]; do # over every vector index in object
-    vi=${objects[idx]}
+    vi=${objects[idx]} # Vector index in vectors array
     vx=${vectors[$vi*4]}
     vy=${vectors[$vi*4+1]}
     vz=${vectors[$vi*4+2]}
     vn=${vectors[$vi*4+3]}
     matMultLocal # Uses: mat vx vy vz vn
-    x=$((x/n))
+    x=$((x/n)) # normalize each component
     y=$((y/n))
     z=$((z/n))
     terminalIsInScreen $x $y && echo "$((x+TWIDTH2)) $((y+THEIGHT2)) $z $cl $ch"
@@ -607,7 +640,7 @@ function scheduleRenderersOld {
 
 function scheduleRenderers {
   #local mat=($(matMultXform $matrixPerspective $(matRotx $((0))) $(matTrans 0 0 0) $(matRoty $((frame)))))
-  local mat=($(matMultXform $matrixPerspective $(matRoty $((frame)))))
+  local mat=($(matMultXform $matrixPerspective $(matMultXform $(matRotx $((frame/2))) $(matRoty $((frame))))))
   local max=${#objects[*]}
   local oi label type cl ch count x y z n
   thread=1  # pretend just one thread
@@ -619,7 +652,7 @@ function scheduleRenderers {
     ch=${objects[oi+3]}
     count=${objects[oi+4]}
     oi=$((oi+5))
-    last=$(( count + oi)) # compute index of last element in this object
+    last=$((count + oi)) # compute index of last element in this object
     case $type in
      (p) plotPoints ;;
      (l) plotLines ;;
@@ -811,10 +844,10 @@ function buildTexturedCubes {
   local s=$2 # distance between cubes
   local d=$3 # density of the cubes
   function buildTexturedFace {
-    local  x  y=$((-r/d))
-    #echo -$r $r 0 1   $r $r 0 1   -$r -$r 0 1   # Normal vectors
+    local  x  y=$((-r/d-0))
+    echo $y $y 0 1   $y $((r/d-1)) 0 1   $((r/d-1)) $y 0 1
     while [ $y -le $((r/d)) ]; do
-      x=$((-r/d))
+      x=$((-r/d-0))
       while [ $x -le $((r/d)) ]; do
         echo -n "$((d*x)) $((d*y)) 0 1 "
         x=$((x+1))
@@ -824,36 +857,35 @@ function buildTexturedCubes {
   }
   function buildFaceRotation {
     case $1 in
-      ( 0 ) matMultXform $(matTrans $1 $2 $3) $(matRoty  0) $(matTrans 0 0 -$r) ;;
-      ( 1 ) matMultXform $(matTrans $1 $2 $3) $(matRoty 30) $(matTrans 0 0 -$r) ;;
-      ( 2 ) matMultXform $(matTrans $1 $2 $3) $(matRoty 60) $(matTrans 0 0 -$r) ;;
-      ( 3 ) matMultXform $(matTrans $1 $2 $3) $(matRoty 90) $(matTrans 0 0 -$r) ;;
-      ( 4 ) matMultXform $(matTrans $1 $2 $3) $(matRotx 30) $(matTrans 0 0 -$r) ;;
-      ( 5 ) matMultXform $(matTrans $1 $2 $3) $(matRotx 90) $(matTrans 0 0 -$r) ;;
+      (0) matMultXform $(matTrans $2 $3 $4) $(matRoty  0) $(matTrans 0 0 -$r) ;;
+      (1) matMultXform $(matTrans $2 $3 $4) $(matRoty 30) $(matTrans 0 0 -$r) ;;
+      (2) matMultXform $(matTrans $2 $3 $4) $(matRoty 60) $(matTrans 0 0 -$r) ;;
+      (3) matMultXform $(matTrans $2 $3 $4) $(matRoty 90) $(matTrans 0 0 -$r) ;;
+      (4) matMultXform $(matTrans $2 $3 $4) $(matRotx 30) $(matTrans 0 0 -$r) ;;
+      (5) matMultXform $(matTrans $2 $3 $4) $(matRotx 90) $(matTrans 0 0 -$r) ;;
+      (*) exit -1
     esac
   }
   function buildTexturedCube {
     local ret
-    #vectorsAdd $(matMult $(buildFaceRotation 0 $1 $2 $3) $(buildTexturedFace))
-    #objectsAdd POINTS p 2 @ $(eval echo {$ret..$((ret+$(( $(vectorsLength) - ret - 1))))}) # color char idx...
 
-    #vectorsAdd $(matMult $(buildFaceRotation 1 $1 $2 $3) $(buildTexturedFace))
-    #objectsAdd POINTS p 3 @ $(eval echo {$ret..$((ret+$(( $(vectorsLength) - ret - 1))))}) # color char idx...
+    vectorsAdd $(matMult $(buildFaceRotation 1 $1 $2 $3) $(buildTexturedFace))
+    objectsAdd POINTS p 3 @  $ret $((ret+1)) $((ret+2)) $(eval echo {$((ret+3))..$((ret+$(( $(vectorsLength) - ret - 1))))}) # color char idx...
 
-    #vectorsAdd $(matMult $(buildFaceRotation 2 $1 $2 $3) $(buildTexturedFace))
-    #objectsAdd POINTS p 4 @ $(eval echo {$ret..$((ret+$(( $(vectorsLength) - ret - 1))))}) # color char idx...
+    vectorsAdd $(matMult $(buildFaceRotation 2 $1 $2 $3) $(buildTexturedFace))
+    objectsAdd POINTS p 4 @  $ret $((ret+1)) $((ret+2))  $(eval echo {$((ret+3))..$((ret+$(( $(vectorsLength) - ret - 1))))}) # color char idx...
 
-    #vectorsAdd $(matMult $(buildFaceRotation 3 $1 $2 $3) $(buildTexturedFace))
-    #objectsAdd POINTS p 5 @ $(eval echo {$ret..$((ret+$(( $(vectorsLength) - ret - 1))))}) # color char idx...
+    vectorsAdd $(matMult $(buildFaceRotation 3 $1 $2 $3) $(buildTexturedFace))
+    objectsAdd POINTS p 5 @  $ret $((ret+1)) $((ret+2))  $(eval echo {$((ret+3))..$((ret+$(( $(vectorsLength) - ret - 1))))}) # color char idx...
 
-    #vectorsAdd $(matMult $(buildFaceRotation 4 $1 $2 $3) $(buildTexturedFace))
-    #objectsAdd POINTS p 6 @ $(eval echo {$ret..$((ret+$(( $(vectorsLength) - ret - 1))))}) # color char idx...
+    vectorsAdd $(matMult $(buildFaceRotation 4 $1 $2 $3) $(buildTexturedFace))
+    objectsAdd POINTS p 6 @  $ret $((ret+1)) $((ret+2))  $(eval echo {$((ret+3))..$((ret+$(( $(vectorsLength) - ret - 1))))}) # color char idx...  
 
     vectorsAdd $(matMult $(buildFaceRotation 5 $1 $2 $3) $(buildTexturedFace))
-    objectsAdd POINTS p 2 @ $(eval echo {$ret..$((ret+$(( $(vectorsLength) - ret - 1))))}) # color char idx...
+    objectsAdd POINTS p 2 @  $ret $((ret+1)) $((ret+2))  $(eval echo {$((ret+3))..$((ret+$(( $(vectorsLength) - ret - 1))))}) # color char idx...
 
   }
-  buildTexturedCube -$s  0   0
+  buildTexturedCube  $s   0   0
   #buildTexturedCube  $s  0   0
   #buildTexturedCube   0  $s  0
   #buildTexturedCube   0 -$s  0
@@ -874,11 +906,11 @@ function buildSimple {
   #objectsAdd POINTS p 1 x $(eval echo {$ret..$((ret+7))}) # color char idx...
   r=$((r/2))
   vectorsAdd -$r $r $r 1  $r $r $r 1  $r -$r $r 1  -$r -$r $r 1   -$r $r -$r 1  $r $r -$r 1  $r -$r -$r 1  -$r -$r -$r 1
-  objectsAdd POINTS p 3 x $(eval echo {$ret..$((ret+7))}) # color char idx...
+  #objectsAdd POINTS p 3 x  0 0 0  $(eval echo {$ret..$((ret+7))}) # color char idx...
 
-  objectsAdd LINES l 5 x  0 1  1 2  2 3  3 0 # top
-  objectsAdd LINES l 6 x  4 5  5 6  6 7  7 4 # bottom
-  objectsAdd LINES l 7 x  0 4  1 5  2 6  3 7 # sides
+  objectsAdd LINES l 5 f  0 1 4  0 1  1 2  2 3  3 0 # back
+  objectsAdd LINES l 6 b  4 5 7  4 5  5 6  6 7  7 4 # front
+  objectsAdd LINES l 7 x  0 1 4  1 5  2 6  3 7  4 0 # edges
 
   #objectsPolyAdd 1 @ 0 1 2  0 1 2 3 # color char nomIdx... idx...
   #objectsPolyAdd 1 @ 4 5 6  4 5 6 7 # color char nomIdx... idx...
@@ -936,11 +968,11 @@ function main {
       renderObjects
     done
   ;; (c)
-    buildSimple 15
-    buildTexturedCubes 20 0 4
-    #vectorsDump
-    #objectsDump
-    #read -n 1 -p 'Abort, Retry, Fail?' k
+    buildSimple 19
+    buildTexturedCubes 10 0 3
+    vectorsDump
+    objectsDump
+    read -n 1 -p 'Abort, Retry, Fail?' k
     [ "$k" == 'q' ] && return
     while $powerButton && [ $frame != $framestop ] ; do
       renderObjects
