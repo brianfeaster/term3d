@@ -96,7 +96,7 @@ function resetCritters {
 resetCritters
 
 function terminalProbe {
-  read THEIGHT TWIDTH <<<$(stty size);
+  read THEIGHT TWIDTH <<<$(stty size)
   THEIGHT2=$((THEIGHT/2))
   TWIDTH2=$((TWIDTH/2))
 }
@@ -458,8 +458,40 @@ function matMultLocal { # Caller:(vx vy vz vn) => Caller:(x y z n)
   n=$((mat[12]*vx+mat[13]*vy+mat[14]*vz+mat[15]*vn))
 }
 
+function isObjectFacing {
+  local idx=$((oi)) vi vx vy vz vn x y z n
+  local nx0 ny0 nz0 nn0
+  local nx1 ny1 nz1 nn1
+  local nx2 ny2 nz2 nn2
+
+  vi=${objects[idx]}
+  vx=${vectors[$vi*4]}
+  vy=${vectors[$vi*4+1]}
+  vz=${vectors[$vi*4+2]}
+  vn=${vectors[$vi*4+3]}
+  matMultLocal; nx0=$x; ny0=$y; nz0=$z; nn0=$n
+
+  vi=${objects[idx+1]}
+  vx=${vectors[$vi*4]}
+  vy=${vectors[$vi*4+1]}
+  vz=${vectors[$vi*4+2]}
+  vn=${vectors[$vi*4+3]}
+  matMultLocal; nx1=$x; ny1=$y; nz1=$z; nn1=$n
+
+  vi=${objects[idx+2]}
+  vx=${vectors[$vi*4]}
+  vy=${vectors[$vi*4+1]}
+  vz=${vectors[$vi*4+2]}
+  vn=${vectors[$vi*4+3]}
+  matMultLocal; nx2=$x; ny2=$y; nz2=$z; nn2=$n
+
+  isFacing $nx0 $ny0 $nz0 $nn0  $nx1 $ny1 $nz1 $nn1  $nx2 $ny2 $nz2 $nn2
+}
+
 function plotLines () {
-  local idx=$((oi+3)) vi vx vy vz vn a b c x y z n
+  local idx vi vx vy vz vn a b c x y z n
+  isObjectFacing || return
+  idx=$((oi+3))
   while [ $idx -lt $last ]; do # over every vector index in object
     vi=${objects[idx]}
     vx=${vectors[$vi*4]}
@@ -506,33 +538,9 @@ function plotPoly () {
 }
 
 function plotPoints () {
-  local idx=$((oi)) vi vx vy vz vn vx x y z n
-  local nx0 ny0 nz0 nn0
-  local nx1 ny1 nz1 nn1
-  local nx2 ny2 nz2 nn2
+  local idx=$((oi)) vi vx vy vz vn x y z n
 
-  vi=${objects[idx]}
-  vx=${vectors[$vi*4]}
-  vy=${vectors[$vi*4+1]}
-  vz=${vectors[$vi*4+2]}
-  vn=${vectors[$vi*4+3]}
-  matMultLocal; nx0=$x; ny0=$y; nz0=$z; nn0=$n
-
-  vi=${objects[idx+1]}
-  vx=${vectors[$vi*4]}
-  vy=${vectors[$vi*4+1]}
-  vz=${vectors[$vi*4+2]}
-  vn=${vectors[$vi*4+3]}
-  matMultLocal; nx1=$x; ny1=$y; nz1=$z; nn1=$n
-
-  vi=${objects[idx+2]}
-  vx=${vectors[$vi*4]}
-  vy=${vectors[$vi*4+1]}
-  vz=${vectors[$vi*4+2]}
-  vn=${vectors[$vi*4+3]}
-  matMultLocal; nx2=$x; ny2=$y; nz2=$z; nn2=$n
-
-  isFacing $nx0 $ny0 $nz0 $nn0  $nx1 $ny1 $nz1 $nn1  $nx2 $ny2 $nz2 $nn2 || return
+  isObjectFacing || return
 
   idx=$((oi+3))
 
@@ -640,10 +648,9 @@ function scheduleRenderersOld {
 
 function scheduleRenderers {
   #local mat=($(matMultXform $matrixPerspective $(matRotx $((0))) $(matTrans 0 0 0) $(matRoty $((frame)))))
-  local mat=($(matMultXform $matrixPerspective $(matMultXform $(matRotx $((frame/2))) $(matRoty $((frame))))))
+  local mat=($(matMultXform $matrixPerspective $(matMultXform $(matRotx $((frame/9))) $(matRoty $((frame))))))
   local max=${#objects[*]}
   local oi label type cl ch count x y z n
-  thread=1  # pretend just one thread
   # over all objects
   oi=0; while [ $oi -lt $max ]; do
     #symbol=${objects[oi+0]}
@@ -653,10 +660,11 @@ function scheduleRenderers {
     count=${objects[oi+4]}
     oi=$((oi+5))
     last=$((count + oi)) # compute index of last element in this object
+    thread=$((thread+1))
     case $type in
      (p) plotPoints ;;
      (l) plotLines ;;
-    esac >> 1
+    esac >>"$turn$thread" &
     oi=$((oi+count))
   done
 }
@@ -666,8 +674,7 @@ function fillDepthBuffer {
   # parent: thread
   # clear the screen buffer
   local depthBuffer=($(printf "%.s9999 " $(eval echo "{1..$((TWIDTH*THEIGHT))}"))) local idx
-  wait # for all the rendering child processes to finish
-  for filename in $(eval "echo {1..$thread}"); do
+  for filename in $(eval "echo $turn{1..$thread}"); do
     while read x y z k c; do
       idx=$((x+y*TWIDTH))
       if [ $z -lt ${depthBuffer[idx]} ]; then
@@ -688,14 +695,18 @@ function dumpStats {
 
 function renderObjects {
   [ $sec == 0 ] || [ "$1" == -resetCritters ] && resetCritters # Animal glyphs reset every minute or screen resize.
-  local facing=0 thread=0
+  local facing=0 thread=0 turn=$(( frame % 2 ))
   scheduleRenderers # accesses: facing thread.  Creates files with "x y z k c" per line
   if [ $thread != 0 ]; then
     local buff=("${screenBufferEmpty[@]}")
+
+    wait # for all the rendering child processes to finish
+    {
     fillDepthBuffer # accesses: thread buff
     IFS=''; echo -en '\e[H'; echo -n "${buff[*]}"; unset IFS # dump scren buffer
     dumpStats # accesses: facing thread
-    rm $(eval "echo {1..$thread}") # Remove the files the rendering processes created
+    rm $(eval "echo $turn{1..$thread}") # Remove the files the rendering processes created
+    } &
   fi
   frame=$((frame+1))
 }
@@ -869,20 +880,23 @@ function buildTexturedCubes {
   function buildTexturedCube {
     local ret
 
+    vectorsAdd $(matMult $(buildFaceRotation 0 $1 $2 $3) $(buildTexturedFace))
+    objectsAdd POINTS p 1 @  $ret $((ret+1)) $((ret+2)) $(eval echo {$((ret+3))..$((ret+$(( $(vectorsLength) - ret - 1))))}) # color char idx...
+
     vectorsAdd $(matMult $(buildFaceRotation 1 $1 $2 $3) $(buildTexturedFace))
-    objectsAdd POINTS p 3 @  $ret $((ret+1)) $((ret+2)) $(eval echo {$((ret+3))..$((ret+$(( $(vectorsLength) - ret - 1))))}) # color char idx...
+    objectsAdd POINTS p 2 @  $ret $((ret+1)) $((ret+2)) $(eval echo {$((ret+3))..$((ret+$(( $(vectorsLength) - ret - 1))))}) # color char idx...
 
     vectorsAdd $(matMult $(buildFaceRotation 2 $1 $2 $3) $(buildTexturedFace))
-    objectsAdd POINTS p 4 @  $ret $((ret+1)) $((ret+2))  $(eval echo {$((ret+3))..$((ret+$(( $(vectorsLength) - ret - 1))))}) # color char idx...
+    objectsAdd POINTS p 3 @  $ret $((ret+1)) $((ret+2))  $(eval echo {$((ret+3))..$((ret+$(( $(vectorsLength) - ret - 1))))}) # color char idx...
 
     vectorsAdd $(matMult $(buildFaceRotation 3 $1 $2 $3) $(buildTexturedFace))
-    objectsAdd POINTS p 5 @  $ret $((ret+1)) $((ret+2))  $(eval echo {$((ret+3))..$((ret+$(( $(vectorsLength) - ret - 1))))}) # color char idx...
+    objectsAdd POINTS p 4 @  $ret $((ret+1)) $((ret+2))  $(eval echo {$((ret+3))..$((ret+$(( $(vectorsLength) - ret - 1))))}) # color char idx...
 
     vectorsAdd $(matMult $(buildFaceRotation 4 $1 $2 $3) $(buildTexturedFace))
-    objectsAdd POINTS p 6 @  $ret $((ret+1)) $((ret+2))  $(eval echo {$((ret+3))..$((ret+$(( $(vectorsLength) - ret - 1))))}) # color char idx...  
+    objectsAdd POINTS p 5 @  $ret $((ret+1)) $((ret+2))  $(eval echo {$((ret+3))..$((ret+$(( $(vectorsLength) - ret - 1))))}) # color char idx...
 
     vectorsAdd $(matMult $(buildFaceRotation 5 $1 $2 $3) $(buildTexturedFace))
-    objectsAdd POINTS p 2 @  $ret $((ret+1)) $((ret+2))  $(eval echo {$((ret+3))..$((ret+$(( $(vectorsLength) - ret - 1))))}) # color char idx...
+    objectsAdd POINTS p 6 @  $ret $((ret+1)) $((ret+2))  $(eval echo {$((ret+3))..$((ret+$(( $(vectorsLength) - ret - 1))))}) # color char idx...
 
   }
   buildTexturedCube  $s   0   0
@@ -890,6 +904,28 @@ function buildTexturedCubes {
   #buildTexturedCube   0  $s  0
   #buildTexturedCube   0 -$s  0
 } # buildTexturedCubes
+
+function buildFloor {
+  local ret
+  local r=$1 # radius of the cubes
+  local s=$2 # floor height
+  local d=$3 # density of the cubes
+
+  function buildTexturedFace {
+    local  x  z=$((-r/d))
+    echo 0 0 0 1  0 0 0 1  0 0 0 1
+    while [ $z -le $((r/d)) ]; do
+      x=$((-r/d))
+      while [ $x -le $((r/d)) ]; do
+        echo -n "$((d*x)) 0 $((d*z)) 1 "
+        x=$((x+1))
+      done
+      z=$((z+1))
+    done
+  }
+  vectorsAdd $(matMult $(matTrans 0 $s 0) $(buildTexturedFace))
+  objectsAdd POINTS p 8 .  $ret $((ret+1)) $((ret+2)) $(eval echo {$((ret+3))..$((ret+$(( $(vectorsLength) - ret - 1))))})
+}
 
 
 # How to reference later on to apply transformations?
@@ -908,9 +944,9 @@ function buildSimple {
   vectorsAdd -$r $r $r 1  $r $r $r 1  $r -$r $r 1  -$r -$r $r 1   -$r $r -$r 1  $r $r -$r 1  $r -$r -$r 1  -$r -$r -$r 1
   #objectsAdd POINTS p 3 x  0 0 0  $(eval echo {$ret..$((ret+7))}) # color char idx...
 
-  objectsAdd LINES l 5 f  0 1 4  0 1  1 2  2 3  3 0 # back
-  objectsAdd LINES l 6 b  4 5 7  4 5  5 6  6 7  7 4 # front
-  objectsAdd LINES l 7 x  0 1 4  1 5  2 6  3 7  4 0 # edges
+  objectsAdd LINES l 5 +  0 0 0  0 1  1 2  2 3  3 0 # back
+  objectsAdd LINES l 6 +  0 0 0  4 5  5 6  6 7  7 4 # front
+  objectsAdd LINES l 7 +  0 0 0  1 5  2 6  3 7  4 0 # edges
 
   #objectsPolyAdd 1 @ 0 1 2  0 1 2 3 # color char nomIdx... idx...
   #objectsPolyAdd 1 @ 4 5 6  4 5 6 7 # color char nomIdx... idx...
@@ -923,10 +959,11 @@ function buildSimple {
 ##
 sigwinch=false
 function handleSigwinch {
-  sigwinch=false
+  echo handler
   terminalProbe
   resetScreenBuffer
-  renderObjects -resetCritters
+  renderObjects # -resetCritters
+  sigwinch=false
 }
 
 
@@ -934,18 +971,22 @@ function handleSigwinch {
 ## USAGE:  basciiclock [a|b] {frame count}
 ##
 once=true
+framestop=${2:--1}
+function main_sigint {
+  #powerButton=false # why does this mechanism result in framebuffer files being left behind?
+  framestop=$((frame+2)) # files left behind if 1
+}
+function main_sigwinch { sigwinch=true; }
+
 function main {
-  function main_sigint { powerButton=false; }
-  function main_sigwinch { sigwinch=true; }
-  framestop=${2:--1}
+  trap main_sigint   SIGINT
+  trap main_sigwinch SIGWINCH
   printf "\e[?25l" # Disable cursor
   terminalProbe
   resetScreenBuffer
   resetCritters
-  #trap main_sigint   SIGINT
-  trap main_sigwinch SIGWINCH
   case $1 in (a)
-    while $powerButton && [ $frame != $framestop ] ; do
+    while $powerButton && [ $frame != $((framestop+5)) ] ; do
       $sigwinch && handleSigwinch
       # Recompute models.  They might be time dependent like a real-time analog clock.
       if $once && [ "$jiffy" != $(date +%s) ]; then
@@ -968,19 +1009,20 @@ function main {
       renderObjects
     done
   ;; (c)
-    buildSimple 19
+    buildSimple 20
     buildTexturedCubes 10 0 3
-    vectorsDump
-    objectsDump
-    read -n 1 -p 'Abort, Retry, Fail?' k
+    buildFloor 40 20 4
+    #vectorsDump
+    #objectsDump
+    #read -n 1 -p 'Abort, Retry, Fail?' k
     [ "$k" == 'q' ] && return
     while $powerButton && [ $frame != $framestop ] ; do
+      $sigwinch && { wait;  handleSigwinch; }
       renderObjects
-      frame=$((frame+1))
     done
   ;; esac
   printf "\e[?25h" # Enable cursor
 }
 
 #time main b 30 # Time run 60 frames
-main ${1:-c} $2 # Run indefinitely or until ^C
+time main ${1:-c} # Run indefinitely or until ^C
