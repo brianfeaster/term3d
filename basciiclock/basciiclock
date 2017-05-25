@@ -355,8 +355,8 @@ function objectsDump {
     printf " $count:"
     oi=$((oi+5))
     case ${objects[oi-4]} in
-      (p) printf " %2d" ${objects[*]:oi:count} ;;      # Dump indices representing each point
-      (l) printf " %2d-%-2d" ${objects[*]:oi:count} ;; # Dump index pairs representing a line
+      (p) printf " %2d" ${objects[*]:oi+3:count} ;;      # Dump indices representing each point
+      (l) printf " %2d-%-2d" ${objects[*]:oi+3:count} ;; # Dump index pairs representing a line
     esac
     echo "."
     oi=$((oi + count))
@@ -665,7 +665,7 @@ function scheduleRenderersOld {
 }
 
 function scheduleRenderers {
-  local mat=($(matMultXform $matrixPerspective $(matRotx $((0))) $(matTrans 0 0 0) $(matRoty $((frame)))))
+  local mat=($(matMultXform $matrixPerspective $(matRotx $((0))) $(matRoty $((frame/5))) $(matTrans 0 0 0) ))
   #local mat=($(matMultXform $matrixPerspective $(matMultXform $(matRotx $((frame/9))) $(matRoty $((frame))))))
   local max=${#objects[*]}
   local oi label type cl ch count x y z n
@@ -734,6 +734,29 @@ function renderObjects {
 ##
 ## Build Models
 ##
+clockRadius=10
+function buildClock {
+  local ret r=$1
+  clockRadius=$r
+  vectorsAdd  0 0 0 1  0 -$r 0 1  0 -$r 0 1   0 -$r 0 1  $r 0 0 1  $r $r 0 1   -$r -$r 0 1  $r -$r 0 1   $r $r 0 1  -$r $r 0 1
+  dp=ret
+  objectsAdd HOUR l 1 @  $ret $((ret+1)) $((ret+2))  $((ret)) $((ret+3))
+  objectsAdd MIN  l 2 +  $ret $((ret+1)) $((ret+2))  $((ret)) $((ret+4))
+  objectsAdd MIN  l 4 -  $ret $((ret+1)) $((ret+2))  $((ret)) $((ret+5))
+  objectsAdd BOX  y 7 .  $ret $((ret+1)) $((ret+2))  $((ret+6)) $((ret+7)) $((ret+8)) $((ret+9))
+}
+
+function updateClock {
+  vectors[(dp+3)*4+0]=$((SINTABLE[(frame)%120]*clockRadius/120))
+  vectors[(dp+3)*4+1]=$((COSTABLE[(frame)%120]*clockRadius/120))
+  vectors[(dp+4)*4+0]=$((SINTABLE[(frame/2)%120]*clockRadius/120))
+  vectors[(dp+4)*4+1]=$((COSTABLE[(frame/2)%120]*clockRadius/120))
+  vectors[(dp+5)*4+0]=$((SINTABLE[(frame/3)%120]*clockRadius/120))
+  vectors[(dp+5)*4+1]=$((COSTABLE[(frame/3)%120]*clockRadius/120))
+}
+
+
+
 
 function buildClockCube {
   local r=$1
@@ -973,6 +996,16 @@ function buildSimpleBox {
   objectsAdd BOXe l 7 +  0 0 0  1 5  2 6  3 7  4 0 # edges
 }
 
+function updateBoxes {
+  vectors[(dp+0)*4+1]=$((SINTABLE[(1*frame+10)%120]/8))
+  vectors[(dp+1)*4+1]=$((SINTABLE[(1*frame+21)%120]/8))
+  vectors[(dp+2)*4+1]=$((SINTABLE[(1*frame+32)%120]/8))
+  vectors[(dp+3)*4+1]=$((SINTABLE[(1*frame+43)%120]/8))
+  vectors[(dp+4)*4+1]=$((SINTABLE[(1*frame+61)%120]/8))
+  vectors[(dp+5)*4+1]=$((SINTABLE[(1*frame+72)%120]/8))
+  vectors[(dp+6)*4+1]=$((SINTABLE[(1*frame+83)%120]/8))
+  vectors[(dp+7)*4+1]=$((SINTABLE[(1*frame+94)%120]/8))
+}
 
 
 ##
@@ -1000,49 +1033,43 @@ function main_sigint {
 function main_sigwinch { sigwinch=true; }
 
 function main {
-  trap main_sigint   SIGINT
-  trap main_sigwinch SIGWINCH
+  #trap main_sigint   SIGINT
+  #trap main_sigwinch SIGWINCH
   printf "\e[?25l" # Disable cursor
   terminalProbe
   resetScreenBuffer
   resetCritters
   case $1 in (a)
-    while $powerButton && [ $frame != $((framestop+5)) ] ; do
-      $sigwinch && handleSigwinch
+    while $powerButton && [ $frame != $((framestop)) ] ; do
+      $sigwinch && { wait; handleSigwinch; }
       # Recompute models.  They might be time dependent like a real-time analog clock.
       if $once && [ "$jiffy" != $(date +%s) ]; then
         once=false
         jiffy=$(date +%s)
         timeProbe # $((frame*483))
-        glabels=()
-        gnormals=()
-        gpoints=()
-        buildClockCube 20
+        buildClock 20
+        #vectorsDump
+        #objectsDump
+        #read -n 1 -p 'Abort, Retry, Fail?' k
       fi
       renderObjects
+      updateClock
     done
   ;; (b)
     buildSimpleBox 20
     #buildTexturedCubes 9 0 3
-    buildFloor 40 20 4
+    #buildFloor 40 20 4
     #vectorsDump
     #objectsDump
     #read -n 1 -p 'Abort, Retry, Fail?' k
     while $powerButton && [ $frame != $framestop ] ; do
       $sigwinch && { wait;  handleSigwinch; }
       renderObjects
-      vectors[dp+ 6*4+1]=$((SINTABLE[(20+4*frame+0 )%120]/8))
-      vectors[dp+ 7*4+1]=$((SINTABLE[(20+4*frame+30)%120]/8))
-      vectors[dp+ 8*4+1]=$((SINTABLE[(20+4*frame+60)%120]/8))
-      vectors[dp+ 9*4+1]=$((SINTABLE[(20+4*frame+90)%120]/8))
-      vectors[dp+10*4+1]=$((SINTABLE[(20+4*frame+0 )%120]/8))
-      vectors[dp+11*4+1]=$((SINTABLE[(20+4*frame+30)%120]/8))
-      vectors[dp+12*4+1]=$((SINTABLE[(20+4*frame+60)%120]/8))
-      vectors[dp+13*4+1]=$((SINTABLE[(20+4*frame+90)%120]/8))
+      updateBoxes
     done
   ;; esac
   printf "\e[?25h" # Enable cursor
 }
 
 #time main b 30 # Time run 60 frames
-time main ${1:-b} # Run indefinitely or until ^C
+main ${1:-a} # Run indefinitely or until ^C
