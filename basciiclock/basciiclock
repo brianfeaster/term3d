@@ -458,35 +458,40 @@ function matMultLocal { # Caller:(vx vy vz vn) => Caller:(x y z n)
   n=$((mat[12]*vx+mat[13]*vy+mat[14]*vz+mat[15]*vn))
 }
 
-function isObjectFacing {
+function isObjectFacing { # Completely inlined matrix multiply and normal
   #Parent: oi
-  local idx=$((oi)) vi vx vy vz vn x y z n
-  local nx0 ny0 nz0 nn0
-  local nx1 ny1 nz1 nn1
-  local nx2 ny2 nz2 nn2
+  local idx=$oi vi vx vy vz vn x y n nx0 ny0 nn0 nx1 ny1 nn1 xy zy
 
   vi=${objects[idx]}
-  vx=${vectors[$vi*4]}
-  vy=${vectors[$vi*4+1]}
-  vz=${vectors[$vi*4+2]}
-  vn=${vectors[$vi*4+3]}
-  matMultLocal; nx0=$x; ny0=$y; nz0=$z; nn0=$n
+  vx=${vectors[vi*4]}
+  vy=${vectors[vi*4+1]}
+  vz=${vectors[vi*4+2]}
+  vn=${vectors[vi*4+3]}
+  nx0=$((mat[0]*vx+mat[1]*vy+mat[2]*vz+mat[3]*vn))
+  ny0=$((mat[4]*vx+mat[5]*vy+mat[6]*vz+mat[7]*vn))
+  nn0=$((mat[12]*vx+mat[13]*vy+mat[14]*vz+mat[15]*vn))
 
   vi=${objects[idx+1]}
-  vx=${vectors[$vi*4]}
-  vy=${vectors[$vi*4+1]}
-  vz=${vectors[$vi*4+2]}
-  vn=${vectors[$vi*4+3]}
-  matMultLocal; nx1=$x; ny1=$y; nz1=$z; nn1=$n
+  vx=${vectors[vi*4]}
+  vy=${vectors[vi*4+1]}
+  vz=${vectors[vi*4+2]}
+  vn=${vectors[vi*4+3]}
+  nx1=$((mat[0]*vx+mat[1]*vy+mat[2]*vz+mat[3]*vn))
+  ny1=$((mat[4]*vx+mat[5]*vy+mat[6]*vz+mat[7]*vn))
+  nn1=$((mat[12]*vx+mat[13]*vy+mat[14]*vz+mat[15]*vn))
 
   vi=${objects[idx+2]}
-  vx=${vectors[$vi*4]}
-  vy=${vectors[$vi*4+1]}
-  vz=${vectors[$vi*4+2]}
-  vn=${vectors[$vi*4+3]}
-  matMultLocal; nx2=$x; ny2=$y; nz2=$z; nn2=$n
+  vx=${vectors[vi*4]}
+  vy=${vectors[vi*4+1]}
+  vz=${vectors[vi*4+2]}
+  vn=${vectors[vi*4+3]}
+  x=$((mat[0]*vx+mat[1]*vy+mat[2]*vz+mat[3]*vn))
+  y=$((mat[4]*vx+mat[5]*vy+mat[6]*vz+mat[7]*vn))
+  n=$((mat[12]*vx+mat[13]*vy+mat[14]*vz+mat[15]*vn))
 
-  isFacing $nx0 $ny0 $nz0 $nn0  $nx1 $ny1 $nz1 $nn1  $nx2 $ny2 $nz2 $nn2
+  zx=$((10*nx0/nn0))
+  zy=$((10*ny0/nn0))
+  [ $(((10*nx1/nn1-zx)*(10*y/n-zy) - (10*ny1/nn1-zy)*(10*x/n-zx))) -le 0 ]
 }
 
 function plotLines () {
@@ -751,11 +756,17 @@ function buildClock {
    (5) tr=$(matMultXform $(matRotx 90) $(matTrans 0 0 -$b)) ;;
   esac
   vectorsAdd  $(matMult $tr 0 0 0 1  $r 0 0 1  0 -$r 0 1   0 -$r 0 1  $r 0 0 1  $r $r 0 1   -$r -$r 0 1  $r -$r 0 1   $r $r 0 1  -$r $r 0 1)
+  local na=$ret nb=$((ret+1)) nc=$((ret+2))
   clockIdx=$ret
-  objectsAdd HOUR l 1 @  $ret $((ret+1)) $((ret+2))  $((ret)) $((ret+3))
-  objectsAdd MIN  l 2 o  $ret $((ret+1)) $((ret+2))  $((ret)) $((ret+4))
-  objectsAdd MIN  l 4 +  $ret $((ret+1)) $((ret+2))  $((ret)) $((ret+5))
-  objectsAdd BOX  y $((face+1)) . $ret $((ret+1)) $((ret+2))  $((ret+6)) $((ret+7)) $((ret+8)) $((ret+9))
+  objectsAdd HOUR l 6 _  $na $nb $nc $ret $((ret+3))
+  objectsAdd MIN  l 2 _  $na $nb $nc $ret $((ret+4))
+  objectsAdd SEC  l 5 _  $na $nb $nc $ret $((ret+5))
+  objectsAdd BOX  y $((face+1)) . $na $nb $nc $((ret+6)) $((ret+7)) $((ret+8)) $((ret+9))
+
+  for s in 10 20 30 40 50 60 70 80 90 100 110; do
+    vectorsAdd $(matMult $(matMultXform $tr $(matRotz s)) 0 $((r/2)) 0 1   0 $r 0 1)
+    objectsAdd TICk l 8 . $na $nb $nc $ret $((ret + 1))
+  done
 }
 
 function updateClock {
