@@ -484,17 +484,6 @@ function matMultXform () {
 }
 
 
-#
-# Given args: x y z n   x' y' z' n'   x" y" z" n"
-# Which define two vectors starting at x y z,
-# Return true if the normal is facing viewer
-#
-function isFacing () {
-  local zx=$((10*$1/$4)) zy=$((10*$2/$4))
-  [ $(((10*$5/$8-zx)*(10*${10}/${12}-zy) - (10*$6/$8-zy)*(10*$9/${12}-zx))) -le 0 ]
-}
-
-
 function matMultLocal { # Caller:(vx vy vz vn) => Caller:(x y z n)
   x=$((mat[0]*vx+mat[1]*vy+mat[2]*vz+mat[3]*vn))
   y=$((mat[4]*vx+mat[5]*vy+mat[6]*vz+mat[7]*vn))
@@ -502,8 +491,11 @@ function matMultLocal { # Caller:(vx vy vz vn) => Caller:(x y z n)
   n=$((mat[12]*vx+mat[13]*vy+mat[14]*vz+mat[15]*vn))
 }
 
-function isObjectFacing { # Completely inlined matrix multiply and normal
-  #Parent: oi
+# Given index into vectors array (... x y z n   x' y' z' n'   x" y" z" n" ...)
+# Which define two vectors starting at x y z,
+# Return true if the normal is facing viewer
+# Completely inlined matrix multiply and normal calculation
+function isObjectFacing { # &oi &mat
   local vi=$((oi*4)) vi vx vy vz vn x y n nx0 ny0 nn0 nx1 ny1 nn1 xy zy
 
   vx=${vectors[vi]}
@@ -535,11 +527,9 @@ function isObjectFacing { # Completely inlined matrix multiply and normal
   [ $(((4*nx1/nn1-zx)*(4*y/n-zy) - (4*ny1/nn1-zy)*(4*x/n-zx))) -lt 0 ]
 }
 
-function plotLines () {
-  #Parent: cl ch oi last
+function plotLines () { # &oi &cl &ch &last &mat
   local idx vi vx vy vz vn a b c x y z n
-  #isObjectFacing || return
-  idx=$((oi+0))
+  idx=$oi
   while [ $idx -lt $last ]; do # over every vector index in object
     vi=${objects[idx]}
     vx=${vectors[$vi*4]}
@@ -563,11 +553,9 @@ function plotLines () {
   done
 }
 
-function plotPoly () {
-  #Parent: cl ch oi last
+function plotPoly () { # &cl &ch &oi &last
   local idx vi vi vx vy vz vn ox oy oz on lx ly lz x y z
-  #isObjectFacing || return
-  idx=$((oi+0))
+  idx=$oi
   # Keep track of first point
   vi=${objects[idx]}
   vx=${vectors[$vi*4]}
@@ -601,11 +589,9 @@ function plotPoly () {
   terminalDrawLine  $y $x $oy $ox $z $cl $ch
 }
 
-function plotPoints () {
-  # parent oi last
+function plotPoints () { # &oi &cl &ch &last
   local idx=$oi vi vx vy vz vn x y z n
-  #isObjectFacing || return
-  idx=$((oi+0))
+  idx=$oi
   while [ $idx -lt $last ]; do # over every vector index in object
     vi=${objects[idx]} # Vector index in vectors array
     vx=${vectors[$vi*4]}
@@ -670,6 +656,7 @@ matrixPerspective=$(matMultXform $(matPerspective 60) $(matTrans 0 0 100) $(matS
 ## Rendering and Scheduling
 ##
 screenBufferEmpty=()
+
 function resetScreenBuffer {
   screenBufferEmpty=()
   for i in $(eval echo {1..$((TWIDTH*THEIGHT))}); do
@@ -724,10 +711,10 @@ function doNormals {
 }
 
 function scheduleRenderers {
-  #local mat=($(matMultXform $matrixPerspective $(matRotz $((frame/4))) $(matRotx $((frame/3))) $(matRoty $((frame))) $(matTrans 3 3 3) ))
-  local mat=($(matMultXform $matrixPerspective $(matRotx $((frame/7))) $(matRoty $((frame)))))
+  local mat=($(matMultXform $matrixPerspective $(matRotz $((frame/4))) $(matRotx $((frame/3))) $(matRoty $((frame))) $(matTrans 0 0 0) ))
+  #local mat=($(matMultXform $matrixPerspective $(matRotx $((frame/7))) $(matRoty $((frame)))))
   local max=${#objects[*]}
-  local oi label type cl ch plane count x y z n
+  local oi label type cl ch plane count x y z n last
   doNormals
   # over all objects
   oi=0; while [ $oi -lt $max ]; do
@@ -741,6 +728,7 @@ function scheduleRenderers {
     last=$((count + oi)) # compute index of last element in this object
     if [ ${facing[plane]} -eq 0 ]; then
       thread=$((thread+1))
+      # These reference &cl &ch &oi &last
       case $type in
        (p) plotPoints ;;
        (l) plotLines ;;
@@ -812,23 +800,24 @@ function buildClock {
    (5) tr=$(matMultXform $(matRotx 90) $(matTrans 0 0 -$b)) ;;
   esac
 
-  # plane vectors for normal calculatoin
+  # plane vectors for normal calculatoin.
+  # The first three vectors will be used to calculate the culling normal for the entire clock.
   vectorsAppend  $(matMult $tr  0 0 0 1   $r 0 0 1   0 $s 0 1)
-  idx=$ret
-  planesAppend $idx # The first three vectors will be used to calculate the culling normal for the entire clock
-  nidx=$ret
+  idx=$ret # The index to these vectors is used a bunch of times
+  planesAppend $idx # Register the vectors index of these three points
+  pidx=$ret # Keep track of this plane's index as it's used by all the objects on this plane
 
   vectorsAppend  $(matMult $tr  0 $s 0 1   $r 0 0 1   $r $r 0 1)
-  objectsAdd HOUR l 6 _  $nidx $idx $((idx+3))
-  objectsAdd MIN  l 2 _  $nidx $idx $((idx+4))
-  objectsAdd SEC  l 5 _  $nidx $idx $((idx+5))
+  objectsAdd HOUR l 6 _  $pidx $idx $((ret))
+  objectsAdd MIN  l 2 _  $pidx $idx $((ret+1))
+  objectsAdd SEC  l 5 _  $pidx $idx $((ret+2))
 
   vectorsAppend  $(matMult $tr  $s $s 0 1  $r $s 0 1   $r $r 0 1  $s $r 0 1 )
-  objectsAdd BOX  y $((face+1)) . $nidx $((idx+6)) $((idx+7)) $((idx+8)) $((idx+9))
+  objectsAdd BOX  y $((face+1)) . $pidx $((ret)) $((ret+1)) $((ret+2)) $((ret+3))
 
   for s in 10 20 30 40 50 60 70 80 90 100 110; do
     vectorsAppend $(matMult $(matMultXform $tr $(matRotz $s))  0 $((r/2)) 0 1   0 $r 0 1)
-    objectsAdd TICK l 8 . $nidx $ret $((ret + 1))
+    objectsAdd TICK l 8 . $pidx $ret $((ret + 1))
   done
 }
 
@@ -1121,6 +1110,7 @@ function main_sigwinch { sigwinch=true; }
 
 function main {
   trap main_sigint   SIGINT
+  trap main_sigint   SIGQUIT
   trap main_sigwinch SIGWINCH
   printf "\e[?25l" # Disable cursor
   terminalProbe
@@ -1166,10 +1156,9 @@ function main {
       updateBoxes
     done
   ;; esac
-  printf "\e[?25h" # Enable cursor
+  wait
+  printf "\e[?25h\nDone.\n" # Enable cursor
 }
 
 #time main b 30 # Time run 60 frames
 main ${1:-a} # Run indefinitely or until ^C
-wait
-echo -e "\nDone."
