@@ -1,11 +1,11 @@
 #!/bin/bash
 
-##
-## Poor man's console 3d lib
-##
+#### Poor man's console 3d lib
+## _Concepts_
+## _Testing_
+## _Planes_
 
-####
-## Concepts:
+#### _Concepts_
 ##
 ##  * Vectors and matrices are arrays and passed by value as individual args, a
 ##    quoted expanded list, or referenced directly by the callee due to
@@ -48,6 +48,24 @@
 ##  Objects that share a facing normal will share a common normal to be transformed
 ##  and calculated en masse prior to scheduling the rest of the rendering.
 ####
+
+
+#### _Testing_
+##
+function assertEquals {
+  IFS=''
+  local title="$1" res="$2" exp="$3"
+  #echo -e "\e[32m$1\n\e[0;31m$2\e[0m"
+  if [ "$res" != "$exp" ]; then
+    echo -e "\e[31;1m[FAIL] $title\e[0;33m"
+    diff <(echo $res) <(echo $exp)
+    echo -e "\e[0m"
+    exit $?
+  fi
+  unset IFS
+}
+#### _Testing_
+
 
 
 ##
@@ -329,13 +347,14 @@ function vectorsDump {
 
 
 
+#### _Planes_
 ##
-## Planes:  array of indices into the vectors array pointing at groups of 3 vertices.
+## Array of indices into the vectors array pointing at groups of 3 vertices.
 ##
-planes=()  # Like the above vector array
+planes=()  # Array of vector indices that reference three points defining a plane
 facing=()  # Result of normal calc for each plane (group of 3 normalized vertices)
 function planesLength { echo $((${#planes[*]})); }
-function planesAppend { # Args:  vectorsIdx ... 
+function planesAppend { # Args:  vectorsIdx... 
   local len=${#planes[*]}
   ret=$len
   while [ 0 -lt $# ]; do
@@ -355,15 +374,18 @@ function planesDump {
   done
 }
 
-## Planes Unit Test
-ret=$(vectorsAppend 0 0 0 0  1 1 1 1  2 2 2 2
-      vectorsAppend 8 0 0 0  8 1 1 1  8 2 2 2
-      vectorsAppend 9 0 0 0  9 1 1 1  9 2 2 2
-      planesAppend 0 3 6 
-      planesDump)
-expect=$'-- 3 planes ----\n0 [ 0 0 0 0 ] [ 1 1 1 1 ] [ 2 2 2 2 ] 0\n3 [ 8 0 0 0 ] [ 8 1 1 1 ] [ 8 2 2 2 ] 0\n6 [ 9 0 0 0 ] [ 9 1 1 1 ] [ 9 2 2 2 ] 0'
-[ "$ret" == "$expect" ] || { echo -e "\e[32m$ret\n\e[1;37m!=\n\e[0;31m$expect\e[0m"; exit $?; }
-
+assertEquals "Planes Unit Test" \
+"$(vectorsAppend 0 0 0 0  1 1 1 1  2 2 2 2
+   vectorsAppend 8 0 0 0  8 1 1 1  8 2 2 2
+   vectorsAppend 9 0 0 0  9 1 1 1  9 2 2 2
+   planesAppend 0 3 6
+   planesDump)" \
+"$(echo '-- 3 planes ----'
+   echo '0 [ 0 0 0 0 ] [ 1 1 1 1 ] [ 2 2 2 2 ] 0'
+   echo '3 [ 8 0 0 0 ] [ 8 1 1 1 ] [ 8 2 2 2 ] 0'
+   echo '6 [ 9 0 0 0 ] [ 9 1 1 1 ] [ 9 2 2 2 ] 0')"
+##
+#### _Planes_
 
 
 ##
