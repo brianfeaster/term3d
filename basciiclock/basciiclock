@@ -79,7 +79,25 @@ SINTABLE=(0 6 12 18 25 31 37 43 49 54 60 65 70 75 80 85 89 93 97 101 104 107 110
 SINTABLEI=(0 -6 -12 -18 -25 -31 -37 -43 -49 -54 -60 -65 -70 -75 -80 -85 -89 -93 -97 -101 -104 -107 -110 -112 -114 -116 -117 -119 -119 -120 -120 -120 -119 -119 -117 -116 -114 -112 -110 -107 -104 -101 -97 -93 -89 -85 -80 -75 -70 -65 -60 -54 -49 -43 -37 -31 -25 -18 -12 -6 0 6 12 18 25 31 37 43 49 54 60 65 70 75 80 85 89 93 97 101 104 107 110 112 114 116 117 119 119 120 120 120 119 119 117 116 114 112 110 107 104 101 97 93 89 85 80 75 70 65 60 54 49 43 37 31 25 18 12 6)
 COSTABLE=(120 120 119 119 117 116 114 112 110 107 104 101 97 93 89 85 80 75 70 65 60 54 49 43 37 31 25 18 12 6 0 -6 -12 -18 -25 -31 -37 -43 -49 -54 -60 -65 -70 -75 -80 -85 -89 -93 -97 -101 -104 -107 -110 -112 -114 -116 -117 -119 -119 -120 -120 -120 -119 -119 -117 -116 -114 -112 -110 -107 -104 -101 -97 -93 -89 -85 -80 -75 -70 -65 -60 -54 -49 -43 -37 -31 -25 -18 -12 -6 0 6 12 18 25 31 37 43 49 54 60 65 70 75 80 85 89 93 97 101 104 107 110 112 114 116 117 119 119 120)
 COSTABLEI=(-120 -120 -119 -119 -117 -116 -114 -112 -110 -107 -104 -101 -97 -93 -89 -85 -80 -75 -70 -65 -60 -54 -49 -43 -37 -31 -25 -18 -12 -6 0 6 12 18 25 31 37 43 49 54 60 65 70 75 80 85 89 93 97 101 104 107 110 112 114 116 117 119 119 120 120 120 119 119 117 116 114 112 110 107 104 101 97 93 89 85 80 75 70 65 60 54 49 43 37 31 25 18 12 6 0 -6 -12 -18 -25 -31 -37 -43 -49 -54 -60 -65 -70 -75 -80 -85 -89 -93 -97 -101 -104 -107 -110 -112 -114 -116 -117 -119 -119 -120)
-function range { eval echo {$1..$2}; }
+
+function isNum { [ $1 == $(($1+0)) ]; }
+
+function range {
+  local pre='' a='' b='' post=''
+  while [ 0 -lt $#  ]; do
+    if isNum $1 && [ -z $a ]; then
+      a=$1;
+    elif isNum $1 && [ -z $b ]; then
+      b=$1
+    elif [ -z $pre ]; then
+      pre=$1
+    else
+      post="$post$1"
+    fi
+    shift
+  done
+  eval echo $pre{$a..$b}$post
+}
 
 
 ##
@@ -732,44 +750,9 @@ screenBufferEmpty=()
 
 function resetScreenBuffer {
   screenBufferEmpty=()
-  for i in $(eval echo {1..$((TWIDTH*THEIGHT))}); do
+  for i in $(range 1 $((TWIDTH*THEIGHT))); do
     screenBufferEmpty[i]=' '
   done
-}
-
-function renderobjectsetOld { # ARGS is list of object indices to render
-  while [ 0 -lt $# ]; do
-    read n c k t a b <<< ${glabels[$1]}
-    shift
-    case $t in
-      (y) plotPoly   "$k" "$c" $(matMult $mat ${gpoints[*]:$a:$b-$a}) ;;
-      (l) plotLines  "$k" "$c" $(matMult $mat ${gpoints[*]:$a:$b-$a}) ;;
-      (p) plotPoints "$k" "$c" $(matMult $mat ${gpoints[*]:$a:$b-$a}) ;;
-    esac
-  done
-}
-
-function scheduleRenderersOld {
-  # parent: facing thread
-  local mat=$(matMultXform $matrixPerspective $(matRotx $((frame))) $(matTrans 0 0 0) $(matRoty $((frame)) ) )
-  #local norms=($(matMult $mat ${gnormals[*]}))
-  local objGroup=()
-  # over all objects, render facing in groups
-  for o in $(eval "echo {0..$((${#glabels[*]}-1))}"); do
-    if : || isFacing ${norms[*]:$o*12:12}; then # TODO implemented normal vectors
-      facing=$((facing+1))
-      objGroup[${#objGroup[*]}]=$o
-      if [ 4 -lt ${#objGroup[*]} ]; then # more things happen per thread the higher this number is
-        thread=$((thread+1))
-        renderobjectsetOld ${objGroup[*]} > "$thread" &
-        objGroup=()
-      fi
-    fi
-  done
-  [ 0 -lt ${#objGroup[*]} ] && {
-    thread=$((thread+1))
-    renderobjectsetOld ${objGroup[*]} > "$thread" &
-  }
 }
 
 function doNormals {
@@ -783,13 +766,30 @@ function doNormals {
   done
 }
 
-function scheduleRenderers {
-  #local mat=($(matMultXform $matrixPerspective $(matRotz $((frame/3))) $(matRotx $((frame/2))) $(matRoty $((frame))) $(matTrans 0 0 0) ))
-  #local mat=($(matMultXform $matrixPerspective $(matRotx $((frame/3))) $(matRoty $((frame)))))
-  local mat=($(matMultXform $matrixPerspective $(matRoty $((frame/1))) ))
+function renderObjectSet { # &oil
+ local oi type cl ch count last
+ for oi in ${oil[*]}; do
+    type=${objects[oi+1]}
+    cl=${objects[oi+2]}
+    ch=${objects[oi+3]}
+    count=${objects[oi+5]}
+    oi=$((oi+6))
+    last=$((count + oi)) # compute index of last element in this object
+      # These reference &cl &ch &oi &last
+      case $type in
+       (p) plotPoints ;;
+       (l) plotLines ;;
+       (y) plotPoly ;;
+      esac
+ done
+}
 
+function scheduleRenderers { # &thread
+  local mat=($(matMultXform $matrixPerspective $(matRotz $((frame/3))) $(matRotx $((frame/2))) $(matRoty $((frame))) $(matTrans 0 0 0) ))
+  #local mat=($(matMultXform $matrixPerspective $(matRotx $((frame/3))) $(matRoty $((frame)))))
+  #local mat=($(matMultXform $matrixPerspective $(matRoty $((frame/1))) ))
   local max=${#objects[*]}
-  local oi label type cl ch plane count x y z n last
+  local oi label type cl ch plane count x y z n last oil=() oilc=0
   doNormals
   # over all objects
   oi=0; while [ $oi -lt $max ]; do
@@ -802,23 +802,29 @@ function scheduleRenderers {
     oi=$((oi+6))
     last=$((count + oi)) # compute index of last element in this object
     if [ ${facing[plane]} -eq 0 ]; then
-      thread=$((thread+1))
-      # These reference &cl &ch &oi &last
-      case $type in
-       (p) plotPoints ;;
-       (l) plotLines ;;
-       (y) plotPoly ;;
-      esac >>"$turn$thread" &
+      oil[oilc]=$((oi-6))
+      oilc=$((oilc+1))
+      if [ 5 -lt $oilc ]; then # more things happen per thread the higher this number is
+        thread=$((thread+1))
+        renderObjectSet >>"$turn$thread" &
+        oil=()
+        oilc=0
+      fi
     fi
-    oi=$((oi+count))
+    oi=$last
   done
+
+  [ 0 -lt $oilc ] && {
+    thread=$((thread+1))
+    renderObjectSet >> "$turn$thread" &
+  }
 }
 
 
 function fillDepthBuffer { # &thread &buff
   # clear the screen buffer
-  local depthBuffer=($(printf "%.s9999 " $(eval echo "{1..$((TWIDTH*THEIGHT))}"))) local idx
-  for filename in $(eval "echo $turn{1..$thread}"); do
+  local depthBuffer=($(printf "%.s9999 " $(range 1 $((TWIDTH*THEIGHT))))) local idx
+  for filename in $(range $turn 1 $thread); do
     while read x y z k c; do
       idx=$((x+y*TWIDTH))
       if [ $z -lt ${depthBuffer[idx]} ]; then
@@ -840,16 +846,17 @@ function dumpStats {
 
 function renderObjects {
   [ $sec == 0 ] || [ "$1" == -resetCritters ] && resetCritters # Animal glyphs reset every minute or screen resize.
-  local facingCount=0 thread=0 turn=$(( frame % 2 ))
+  local facingCount=0 thread=0 turnset="jk"
+  local turn=${turnset:frame%2:1}
   scheduleRenderers # accesses: facing thread.  Creates files with "x y z k c" per line
   if [ $thread != 0 ]; then
     local buff=("${screenBufferEmpty[@]}")
     wait # for all the rendering child processes to finish
     {
-    fillDepthBuffer # &thread &buff
-    IFS=''; printf "\e[H${buff[*]}$(dumpStats)" # dump scren buffer
-    unset IFS
-    rm $(eval "echo $turn{1..$thread}") # Remove the files the rendering processes created
+      fillDepthBuffer # &thread &buff
+      IFS=''; printf "\e[H${buff[*]}$(dumpStats)" # dump scren buffer
+      unset IFS
+      rm $(range $turn 1 $thread) # Remove the files the rendering processes created
     } &
   fi
   frame=$((frame+1))
@@ -1123,7 +1130,7 @@ function buildFloor {
     done
   }
   vectorsAppend $(matMult $(matTrans 0 $s 0) $(buildTexturedFace))
-  objectsAdd FLOOR p 8 .  1 $(eval echo {$((ret+3))..$((ret+$(( $(vectorsLength) - ret - 1))))})
+  objectsAdd FLOOR p 8 .  1 $(range $((ret+3)) $((ret+$(( $(vectorsLength) - ret - 1)))))
 }
 
 
@@ -1198,7 +1205,8 @@ function main {
   resetScreenBuffer
   resetCritters
   case $1 in (a)
-    #buildSimpleBox 20
+    #buildSimpleBox 10
+    #buildTexturedCubes 7 35 3
     buildClock 20 0
     buildClock 20 1
     buildClock 20 2
@@ -1229,7 +1237,6 @@ function main {
     buildClock 9 1
     buildClock 9 2
     buildClock 9 3
-    buildTexturedCubes 7 35 3
     buildFloor 40 20 4
     buildSimpleBox 15
     #vectorsDump
@@ -1247,4 +1254,4 @@ function main {
 }
 
 #time main b 30 # Time run 60 frames
-time main ${1:-b} # Run indefinitely or until ^C
+time main ${1:-a} # Run indefinitely or until ^C
