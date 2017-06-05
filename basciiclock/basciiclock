@@ -210,14 +210,14 @@ function terminalDrawLine {
     if [ 0 -le $e ]; then # above mid-point
       if [ $state == 1 ]; then
         if terminalIsInScreen $x $y; then # done if out of screen
-          echo "$((x+TWIDTH2)) $((y+THEIGHT2)) $z $kl $ch"
+          echo $((x+TWIDTH2)) $((y+THEIGHT2)) $z $kl $ch
         else
            return 0
         fi
       else # state == 0
         if terminalIsInScreen $x $y; then
           state=1
-          echo "$((x+TWIDTH2)) $((y+THEIGHT2)) $z $kl $ch"
+          echo $((x+TWIDTH2)) $((y+THEIGHT2)) $z $kl $ch
         fi
       fi
       x=$((x+xwsi)); y=$((y+ywsi))
@@ -225,14 +225,14 @@ function terminalDrawLine {
     else # below mid-point
       if [ $state == 1 ]; then
         if terminalIsInScreen $x $y; then  # done if out of screen
-          echo "$((x+TWIDTH2)) $((y+THEIGHT2)) $z $kl $ch"
+          echo $((x+TWIDTH2)) $((y+THEIGHT2)) $z $kl $ch
         else
           return 0
         fi
       else # state == 0
         if terminalIsInScreen $x $y; then
           state=1
-          echo "$((x+TWIDTH2)) $((y+THEIGHT2)) $z $kl $ch"
+          echo $((x+TWIDTH2)) $((y+THEIGHT2)) $z $kl $ch
         fi
       fi
       x=$((x+xwi)); y=$((y+ywi))
@@ -693,7 +693,7 @@ function plotPoints () { # &oi &cl &ch &last
     x=$((x/n)) # normalize each component
     y=$((y/n))
     z=$((z/n))
-    terminalIsInScreen $x $y && echo "$((x+TWIDTH2)) $((y+THEIGHT2)) $z $cl $ch"
+    terminalIsInScreen $x $y && echo $((x+TWIDTH2)) $((y+THEIGHT2)) $z $cl $ch
     idx=$((idx+1))
   done
 }
@@ -746,13 +746,12 @@ matrixPerspective=$(matMultXform $(matPerspective 60) $(matTrans 0 0 100) $(matS
 ##
 ## Rendering and Scheduling
 ##
-screenBufferEmpty=()
+screenBufferEmpty=""
+depthBufferEmpty=""
 
 function resetScreenBuffer {
-  screenBufferEmpty=()
-  for i in $(range 1 $((TWIDTH*THEIGHT))); do
-    screenBufferEmpty[i]=' '
-  done
+  screenBufferEmpty="$(printf "%.s' ' "  $(range 1 $((TWIDTH*THEIGHT))))"
+  depthBufferEmpty="$(printf "%.s9999 " $(range 1 $((TWIDTH*THEIGHT))))"
 }
 
 function doNormals {
@@ -775,8 +774,7 @@ function renderObjectSet { # &oil
     count=${objects[oi+5]}
     oi=$((oi+6))
     last=$((count + oi)) # compute index of last element in this object
-      # These reference &cl &ch &oi &last
-      case $type in
+      case $type in # &cl &ch &oi &last
        (p) plotPoints ;;
        (l) plotLines ;;
        (y) plotPoly ;;
@@ -789,10 +787,10 @@ function scheduleRenderers { # &thread
   #local mat=($(matMultXform $matrixPerspective $(matRotx $((frame/3))) $(matRoty $((frame)))))
   #local mat=($(matMultXform $matrixPerspective $(matRoty $((frame/1))) ))
   local max=${#objects[*]}
-  local oi label type cl ch plane count x y z n last oil=() oilc=0
+  local oi=0 label type cl ch plane count x y z n last oil=() oilc=0
   doNormals
   # over all objects
-  oi=0; while [ $oi -lt $max ]; do
+  while [ $oi -lt $max ]; do
     #symbol=${objects[oi+0]}
     type=${objects[oi+1]}
     cl=${objects[oi+2]}
@@ -821,9 +819,10 @@ function scheduleRenderers { # &thread
 }
 
 
+
 function fillDepthBuffer { # &thread &buff
   # clear the screen buffer
-  local depthBuffer=($(printf "%.s9999 " $(range 1 $((TWIDTH*THEIGHT))))) local idx
+  local depthBuffer=($depthBufferEmpty) idx z
   for filename in $(range $turn 1 $thread); do
     while read x y z k c; do
       idx=$((x+y*TWIDTH))
@@ -846,15 +845,16 @@ function dumpStats {
 
 function renderObjects {
   [ $sec == 0 ] || [ "$1" == -resetCritters ] && resetCritters # Animal glyphs reset every minute or screen resize.
-  local facingCount=0 thread=0 turnset="jk"
+  local facingCount=0 thread=0 turnset="jk" buff
   local turn=${turnset:frame%2:1}
-  scheduleRenderers # accesses: facing thread.  Creates files with "x y z k c" per line
+  scheduleRenderers # &thread -- Creates files with "x y z k c" per line
   if [ $thread != 0 ]; then
-    local buff=("${screenBufferEmpty[@]}")
+    eval buff=($screenBufferEmpty)
     wait # for all the rendering child processes to finish
     {
-      fillDepthBuffer # &thread &buff
-      IFS=''; printf "\e[H${buff[*]}$(dumpStats)" # dump scren buffer
+      fillDepthBuffer # &turn &thread &buff
+      IFS=''
+        printf "\e[H${buff[*]}$(dumpStats)" # &facingCount &thread
       unset IFS
       rm $(range $turn 1 $thread) # Remove the files the rendering processes created
     } &
@@ -1217,7 +1217,7 @@ function main {
     #objectsDump
     #planesDump
     #read -n 1 -p 'Abort, Retry, Fail?' k
-    while $powerButton && [ $frame != $((framestop)) ] ; do
+    while [ ! -e stop ] && $powerButton && [ $frame != $((framestop)) ] ; do
       $sigwinch && { wait; handleSigwinch; }
       # Recompute models.  They might be time dependent like a real-time analog clock.
       if $once && [ "$jiffy" != $(date +%s) ]; then
