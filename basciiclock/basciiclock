@@ -80,24 +80,8 @@ SINTABLEI=(0 -6 -12 -18 -25 -31 -37 -43 -49 -54 -60 -65 -70 -75 -80 -85 -89 -93 
 COSTABLE=(120 120 119 119 117 116 114 112 110 107 104 101 97 93 89 85 80 75 70 65 60 54 49 43 37 31 25 18 12 6 0 -6 -12 -18 -25 -31 -37 -43 -49 -54 -60 -65 -70 -75 -80 -85 -89 -93 -97 -101 -104 -107 -110 -112 -114 -116 -117 -119 -119 -120 -120 -120 -119 -119 -117 -116 -114 -112 -110 -107 -104 -101 -97 -93 -89 -85 -80 -75 -70 -65 -60 -54 -49 -43 -37 -31 -25 -18 -12 -6 0 6 12 18 25 31 37 43 49 54 60 65 70 75 80 85 89 93 97 101 104 107 110 112 114 116 117 119 119 120)
 COSTABLEI=(-120 -120 -119 -119 -117 -116 -114 -112 -110 -107 -104 -101 -97 -93 -89 -85 -80 -75 -70 -65 -60 -54 -49 -43 -37 -31 -25 -18 -12 -6 0 6 12 18 25 31 37 43 49 54 60 65 70 75 80 85 89 93 97 101 104 107 110 112 114 116 117 119 119 120 120 120 119 119 117 116 114 112 110 107 104 101 97 93 89 85 80 75 70 65 60 54 49 43 37 31 25 18 12 6 0 -6 -12 -18 -25 -31 -37 -43 -49 -54 -60 -65 -70 -75 -80 -85 -89 -93 -97 -101 -104 -107 -110 -112 -114 -116 -117 -119 -119 -120)
 
-function isNum { [ $1 == $(($1+0)) ]; }
-
-function range {
-  local pre='' a='' b='' post=''
-  while [ 0 -lt $#  ]; do
-    if isNum $1 && [ -z $a ]; then
-      a=$1;
-    elif isNum $1 && [ -z $b ]; then
-      b=$1
-    elif [ -z $pre ]; then
-      pre=$1
-    else
-      post="$post$1"
-    fi
-    shift
-  done
-  eval echo $pre{$a..$b}$post
-}
+function range { eval echo {$1..$2}; }
+function prerange { eval echo $1{$2..$3}; }
 
 
 ##
@@ -291,9 +275,9 @@ function terminalDrawLineDirect {
   while [ 0 -lt $i ]; do
     if [ 0 -le $e ]; then
       if [ $state == 1 ]; then
-        terminalIsInScreen $x $y || { # done if out of screen
+        if ! terminalIsInScreen $x $y; then # done if out of screen
            return 0
-        }
+        fi
         printf "$ws$5"
       else # state == 0
         if terminalIsInScreen $x $y; then
@@ -305,9 +289,9 @@ function terminalDrawLineDirect {
       e=$((e + yyxx))
     else
       if [ $state == 1 ]; then
-        terminalIsInScreen $x $y || { # done if out of screen
+        if !terminalIsInScreen $x $y; then # done if out of screen
           return 0
-        }
+        fi
         printf $w$5
       else # state == 0
         if terminalIsInScreen $x $y
@@ -586,8 +570,8 @@ function matMultLocal { # Caller:(vx vy vz vn) => Caller:(x y z n)
 # Which define two vectors starting at x y z,
 # Return true if the normal is facing viewer
 # Completely inlined matrix multiply and normal calculation
-function isObjectFacing { # &oi &mat
-  local vi=$((oi*4)) vi vx vy vz vn x y n nx0 ny0 nn0 nx1 ny1 nn1 xy zy
+function isObjectFacing { # &planeIndex &mat
+  local vi=$((planeIndex*4)) vi vx vy vz vn x y n nx0 ny0 nn0 nx1 ny1 nn1 xy zy
 
   vx=${vectors[vi]}
   vy=${vectors[vi+1]}
@@ -754,18 +738,7 @@ function resetScreenBuffer {
   depthBufferEmpty="$(printf "%.s9999 " $(range 1 $((TWIDTH*THEIGHT))))"
 }
 
-function doNormals {
-  local i=0 oi ret
-  for oi in ${planes[*]}; do
-    isObjectFacing
-    ret=$?
-    facing[i+2]=$ret
-    i=$((i+1))
-   [ $ret -eq 0 ] && facingCount=$((facingCount+1))
-  done
-}
-
-function renderObjectSet { # &oil
+function renderObjectSet { # &oil &turn &thread
  local oi type cl ch count last
  for oi in ${oil[*]}; do
     type=${objects[oi+1]}
@@ -780,15 +753,10 @@ function renderObjectSet { # &oil
        (y) plotPoly ;;
       esac
  done
+ echo "q"
 }
 
-function scheduleRenderers { # &thread
-  local mat=($(matMultXform $matrixPerspective $(matRotz $((frame/3))) $(matRotx $((frame/2))) $(matRoty $((frame))) $(matTrans 0 0 0) ))
-  #local mat=($(matMultXform $matrixPerspective $(matRotx $((frame/3))) $(matRoty $((frame)))))
-  #local mat=($(matMultXform $matrixPerspective $(matRoty $((frame/1))) ))
-  local max=${#objects[*]}
-  local oi=0 label type cl ch plane count x y z n last oil=() oilc=0
-  doNormals
+function scheduleRenderers { # &turn &thread
   # over all objects
   while [ $oi -lt $max ]; do
     #symbol=${objects[oi+0]}
@@ -802,61 +770,88 @@ function scheduleRenderers { # &thread
     if [ ${facing[plane]} -eq 0 ]; then
       oil[oilc]=$((oi-6))
       oilc=$((oilc+1))
-      if [ 5 -lt $oilc ]; then # more things happen per thread the higher this number is
+      if [ 4 -lt $oilc ]; then # more things happen per thread the higher this number is
         thread=$((thread+1))
-        renderObjectSet >>"$turn$thread" &
+        renderObjectSet > "$turn$thread" &
         oil=()
         oilc=0
-      fi
-    fi
-    oi=$last
+      fi fi
+    oi=$last # Skip object index to next object in array
   done
 
-  [ 0 -lt $oilc ] && {
+  if [ 0 -lt $oilc ]; then # Run any threads in the partially full list
     thread=$((thread+1))
-    renderObjectSet >> "$turn$thread" &
-  }
+    renderObjectSet > "$turn$thread" &
+  fi
 }
 
 
+function doNormals { # &mat
+  local planeIndex i=2 # skip the first two fixed normal bools
+  for planeIndex in ${planes[*]}; do
+    isObjectFacing # &planeIndex &mat
+    facing[i]=$?
+    #[ ${facing[i]} -eq 0 ] && facingCount=$((facingCount+1))
+    i=$((i+1))
+  done
+}
 
-function fillDepthBuffer { # &thread &buff
+
+function fillDepthBuffer { # &thread &screenBuffer
   # clear the screen buffer
-  local depthBuffer=($depthBufferEmpty) idx z
-  for filename in $(range $turn 1 $thread); do
-    while read x y z k c; do
-      idx=$((x+y*TWIDTH))
-      if [ $z -lt ${depthBuffer[idx]} ]; then
-        buff[idx]="[${COLORS[k]}m$c"
-        #buff[idx]="."
-        depthBuffer[idx]=$z
+  local idx x y z k c i=0
+  for filename in $(prerange $turn 1 $thread); do
+    while [ ! -e $filename ]; do
+      echo $filename no exist
+      sleep 1
+    done # spin until the file is created
+    while :; do
+      read x y z k c
+      if [ -z "$x" ]; then
+        echo "'[$x,$y,$z,$k,$c]' continue..."
+        sleep 1
+        continue
       fi
+      [ "$x" == q ] && break
+        idx=$((x+y*TWIDTH))
+        if [ $z -lt ${depthBuffer[idx]} ]; then
+          screenBuffer[idx]="[${COLORS[k]}m$c"
+          depthBuffer[idx]=$z
+        fi
     done <"$filename"
+    rm $filename # Remove the files the rendering processes created
+    i=$((i+1))
   done
 }
 
 function dumpStats {
   # parent: facing thread
-  [ $SECONDS -eq 0 ] || {
+  if [ $SECONDS -ne 0 ]; then
     frameRate=$((100*frame/(SECONDS)))
-    PC 8 "\e[2Hframe:$frame\nfps:$((frameRate/100)).$((frameRate%100))\nfacing:$facingCount\nthreads:$thread"
-  }
+    PC 8 "\e[$((THEIGHT-3))Hframe:$frame\nfps:$((frameRate/100)).$((frameRate%100))\nthreads:$thread" # facing:$facingCount
+  fi
 }
 
 function renderObjects {
   [ $sec == 0 ] || [ "$1" == -resetCritters ] && resetCritters # Animal glyphs reset every minute or screen resize.
-  local facingCount=0 thread=0 turnset="jk" buff
-  local turn=${turnset:frame%2:1}
+  local facingCount=0 thread=0 screenBuffer depthBuffer
+  local turn="${frame}_"
+
+  local mat=($(matMultXform $matrixPerspective $(matRotz $((frame/3))) $(matRotx $((frame/2))) $(matRoty $((frame))) $(matTrans 0 0 0) ))
+  #local mat=($(matMultXform $matrixPerspective $(matRotx $((frame/3))) $(matRoty $((frame)))))
+  #local mat=($(matMultXform $matrixPerspective $(matRoty $((frame/1))) ))
+  local max=${#objects[*]} oi=0 label type cl ch plane count x y z n last oil=() oilc=0
+  doNormals
+
   scheduleRenderers # &thread -- Creates files with "x y z k c" per line
   if [ $thread != 0 ]; then
-    eval buff=($screenBufferEmpty)
-    wait # for all the rendering child processes to finish
+    eval screenBuffer=($screenBufferEmpty)
+    depthBuffer=($depthBufferEmpty)
     {
-      fillDepthBuffer # &turn &thread &buff
+      fillDepthBuffer # &turn &thread &screenBuffer
       IFS=''
-        printf "\e[H${buff[*]}$(dumpStats)" # &facingCount &thread
+      printf "\e[H${screenBuffer[*]}$(dumpStats)" # &facingCount &thread
       unset IFS
-      rm $(range $turn 1 $thread) # Remove the files the rendering processes created
     } &
   fi
   frame=$((frame+1))
@@ -1190,8 +1185,8 @@ function handleSigwinch {
 once=true
 framestop=${2:--1}
 function main_sigint {
-  #powerButton=false # why does this mechanism result in framebuffer files being left behind?
-  framestop=$((frame+2)) # files left behind if 1
+  powerButton=false # why does this mechanism result in framebuffer files being left behind?
+  framestop=$((frame+20)) # files left behind if 1
 }
 function main_sigwinch { sigwinch=true; }
 
@@ -1207,6 +1202,7 @@ function main {
   case $1 in (a)
     #buildSimpleBox 10
     #buildTexturedCubes 7 35 3
+    #buildFloor 40 20 4
     buildClock 20 0
     buildClock 20 1
     buildClock 20 2
@@ -1221,8 +1217,7 @@ function main {
       $sigwinch && { wait; handleSigwinch; }
       # Recompute models.  They might be time dependent like a real-time analog clock.
       if $once && [ "$jiffy" != $(date +%s) ]; then
-        once=false
-        jiffy=$(date +%s)
+        once=false jiffy=$(date +%s)
         timeProbe # $((frame*483))
         #vectorsDump
         #objectsDump
