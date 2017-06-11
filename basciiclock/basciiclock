@@ -42,6 +42,12 @@
 ##
 ## Model Store
 ##
+##  Replace below with something that registers points (which may move) and faces that can be drawn from said points
+##  The first three points of the face defines two vectors for normal computation
+##    points: a b c d  e f g h ...
+##    faces:  0 1 2 3  4 5 6 7  1 0 4 5  1 2 5 6 ...
+##    norm:   0 1 3    4 5 7    1 0 5
+##
 ##  Each vertex and model will be stored in global lists.  Another mechanism will be
 ##  used to apply copying transformations to the vertices in the global list.  The
 ##  renderer shouldn't care.
@@ -314,7 +320,7 @@ function terminalDrawLineDirect {
 dv   (){ while [ 0 -lt $# ]; do printf '[%3d %3d %3d %3d ]\n' $1 $2 $3 $4; shift 4; done; }
 dvgl (){ while [ 0 -lt $# ]; do printf "($2 $3 $4 $5 $6)\n"; shift 6; done; }
 dvn  (){ while [ 0 -lt $# ]; do printf '[%6d %6d %6d %6d | %6d]\n' $(($1/$4)) $(($2/$4)) $(($3/$4)) $(($4/$4)) $4; shift 4; done; }
-dm4  (){ printf '[%6d %6d %6d %6d]\n' $1 $2 $3 $4 $5 $6 $7 $8 $9 ${10} ${11} ${12} ${13} ${14} ${15} ${16}; }
+dm4  (){ printf '[%9d %9d %9d %9d]\n' $1 $2 $3 $4 $5 $6 $7 $8 $9 ${10} ${11} ${12} ${13} ${14} ${15} ${16}; }
 COLORS=('0' '0;31' '0;32' '0;33' '0;34' '0;35' '0;36' '0;37' '1;30' '1;31' '1;32' '1;33' '1;34' '1;35' '1;36' '1;37')
 function PC { local c=$1; shift; printf "\e[${COLORS[c]}m$*"; }
 
@@ -559,12 +565,13 @@ function matMultXformLocal () {
 }
 
 
-function matMultLocal { # Caller:(vx vy vz vn) => Caller:(x y z n)
+function matMultLocal { # &mat &vx &vy &vz &vn => &x &y &z &n
   x=$((mat[0]*vx+mat[1]*vy+mat[2]*vz+mat[3]*vn))
   y=$((mat[4]*vx+mat[5]*vy+mat[6]*vz+mat[7]*vn))
   z=$((mat[8]*vx+mat[9]*vy+mat[10]*vz+mat[11]*vn))
   n=$((mat[12]*vx+mat[13]*vy+mat[14]*vz+mat[15]*vn))
 }
+
 
 # Given index into vectors array (... x y z n   x' y' z' n'   x" y" z" n" ...)
 # Which define two vectors starting at x y z,
@@ -685,44 +692,14 @@ function plotPoints () { # &oi &cl &ch &last
 
 
 ##
-## _OLD_ Object descriptor and vertex stores
-##
-
-# Face descriptor
-glabels=() # ( "label char color type startIdx endIdx" ...)
-# Vectors used to determine face's normal
-gnormals=() # ( "{3 points }" ... )
-# All the points
-gpoints=() # ( point ... )
-
-function dumpDescriptors { # ARGS: {seconds to sleep}{3}
-  dvgl ${glabels[*]}
-  sleep ${1:-60}
-  dv ${gnormals[*]}
-  sleep ${2:-60}
-  dv ${gpoints[*]}
-  sleep ${3:-60}
-}
-
-# Keep track of sets of points.  args: label char color type normal-pointes points...
-function makePoints {
-  local currentElementCount=${#gpoints[*]}
-  local newElementCount=$(($#-16)) # Don't count the non-vectors and normal vectors
-  glabels[${#glabels[*]}]="$1 $2 $3 $4 $currentElementCount $((currentElementCount+newElementCount))"
-  shift 4
-  gnormals[${#gnormals[*]}]="$1 $2 $3 $4  $5 $6 $7 $8  $9 ${10} ${11} ${12}"
-  shift 12
-  gpoints=(${gpoints[*]} $*)
-}
-
-
-
-##
 ## Globals
 ##
 powerButton=true
-frame=0 # Final plotting scale
-matrixPerspective=$(matMultXform $(matPerspective 60) $(matTrans 0 0 100) $(matScale 2 2 2))
+jiffy=$SECONDS 
+frame=0
+framestop=60
+sigwinch=false
+matrixPerspective=$(matMultXform $(matPerspective 60) $(matTrans 0 0 100) $(matScale 4 2 2))
 #matrixPerspective="$identity"
 
 
@@ -733,12 +710,15 @@ matrixPerspective=$(matMultXform $(matPerspective 60) $(matTrans 0 0 100) $(matS
 screenBufferEmpty=""
 depthBufferEmpty=""
 
-function resetScreenBuffer {
+function resetEmptyBuffers {
   screenBufferEmpty="$(printf "%.s' ' "  $(range 1 $((TWIDTH*THEIGHT))))"
   depthBufferEmpty="$(printf "%.s9999 " $(range 1 $((TWIDTH*THEIGHT))))"
 }
 
-function renderObjectSet { # &oil &turn &thread
+function renderObjectSet { # &oil &frame &thread
+ trap : SIGINT
+ trap : SIGQUIT
+ trap : SIGWINCH
  local oi type cl ch count last
  for oi in ${oil[*]}; do
     type=${objects[oi+1]}
@@ -756,7 +736,7 @@ function renderObjectSet { # &oil &turn &thread
  echo "q"
 }
 
-function scheduleRenderers { # &turn &thread
+function scheduleObjectRenderers { # &frame &thread
   # over all objects
   while [ $oi -lt $max ]; do
     #symbol=${objects[oi+0]}
@@ -770,9 +750,9 @@ function scheduleRenderers { # &turn &thread
     if [ ${facing[plane]} -eq 0 ]; then
       oil[oilc]=$((oi-6))
       oilc=$((oilc+1))
-      if [ 4 -lt $oilc ]; then # more things happen per thread the higher this number is
+      if [ 10 -lt $oilc ]; then # more things happen per thread the higher this number is
         thread=$((thread+1))
-        renderObjectSet > "$turn$thread" &
+        renderObjectSet > "${frame}_$thread" &
         oil=()
         oilc=0
       fi fi
@@ -781,7 +761,7 @@ function scheduleRenderers { # &turn &thread
 
   if [ 0 -lt $oilc ]; then # Run any threads in the partially full list
     thread=$((thread+1))
-    renderObjectSet > "$turn$thread" &
+    renderObjectSet > "${frame}_$thread" &
   fi
 }
 
@@ -796,11 +776,10 @@ function doNormals { # &mat
   done
 }
 
-
-function fillDepthBuffer { # &thread &screenBuffer
+function fillDepthBuffer { # &frame &thread &screenBuffer &depthBuffer
   # clear the screen buffer
   local idx x y z k c i=0
-  for filename in $(prerange $turn 1 $thread); do
+  for filename in $(prerange ${frame}_ 1 $thread); do
     while [ ! -e $filename ]; do
       echo $filename no exist
       sleep 1
@@ -834,25 +813,24 @@ function dumpStats {
 
 function renderObjects {
   [ $sec == 0 ] || [ "$1" == -resetCritters ] && resetCritters # Animal glyphs reset every minute or screen resize.
-  local facingCount=0 thread=0 screenBuffer depthBuffer
-  local turn="${frame}_"
+  local facingCount=0 thread=0 screenBuffer depthBuffer max=${#objects[*]} oi=0 label type cl ch plane count x y z n last oil=() oilc=0
+  #local mat=($(matMultXform $matrixPerspective $(matRotz $((frame))) $(matRotx $((frame))) $(matRoty $((frame))) $(matTrans 0 0 0) ))
+  local mat=($(matMultXform $matrixPerspective $(matRoty $((frame/1))) ))
 
-  local mat=($(matMultXform $matrixPerspective $(matRotz $((frame/3))) $(matRotx $((frame/2))) $(matRoty $((frame))) $(matTrans 0 0 0) ))
-  #local mat=($(matMultXform $matrixPerspective $(matRotx $((frame/3))) $(matRoty $((frame)))))
-  #local mat=($(matMultXform $matrixPerspective $(matRoty $((frame/1))) ))
-  local max=${#objects[*]} oi=0 label type cl ch plane count x y z n last oil=() oilc=0
   doNormals
-
-  scheduleRenderers # &thread -- Creates files with "x y z k c" per line
+  scheduleObjectRenderers # &frame &thread -- Creates files with "x y z k c" per line
   if [ $thread != 0 ]; then
     eval screenBuffer=($screenBufferEmpty)
     depthBuffer=($depthBufferEmpty)
-    {
-      fillDepthBuffer # &turn &thread &screenBuffer
+    if :; then
+      trap : SIGINT
+      trap : SIGQUIT
+      trap : SIGWINCH
+      fillDepthBuffer # &frame &thread &screenBuffer &depthBuffer
       IFS=''
       printf "\e[H${screenBuffer[*]}$(dumpStats)" # &facingCount &thread
       unset IFS
-    } &
+    fi &
   fi
   frame=$((frame+1))
 }
@@ -864,7 +842,7 @@ function renderObjects {
 clockIdx=0
 clockRadius=10
 function buildClock {
-  local ret r=$1 s=$((- $1)) face=$2 tr idx nidx
+  local r=$1 s=$((- $1)) face=$2 tr idx nidx ret
   local b=$((r+0))
   shift 2
   clockRadius=$r
@@ -910,140 +888,6 @@ function updateClock {
 
 
 
-
-function buildClockCube {
-  local r=$1
-  local box="-$1 $1 0 1  $1 $1 0 1  -$1 -$1 0 1   $r -$r 0 1    -$r -$r 0 1    -$r $r 0 1    $r $r 0 1 "
-  # Transformation matrices that orient a face to either of the 6 cube faces.
-  local matrixCubeFacea=$(matMultXform $(matRoty 0)  $(matTrans 0 0 -$r))
-  local matrixCubeFaceb=$(matMultXform $(matRoty 30) $(matTrans 0 0 -$r))
-  local matrixCubeFacec=$(matMultXform $(matRoty 60) $(matTrans 0 0 -$r))
-  local matrixCubeFaced=$(matMultXform $(matRoty 90) $(matTrans 0 0 -$r))
-  local matrixCubeFacee=$(matMultXform $(matRotx 30) $(matTrans 0 0 -$r))
-  local matrixCubeFacef=$(matMultXform $(matRotx 90) $(matTrans 0 0 -$r))
-  local boxa=$(matMult $matrixCubeFacea $box)
-  local boxb=$(matMult $matrixCubeFaceb $box)
-  local boxc=$(matMult $matrixCubeFacec $box)
-  local boxd=$(matMult $matrixCubeFaced $box)
-  local boxe=$(matMult $matrixCubeFacee $box)
-  local boxf=$(matMult $matrixCubeFacef $box)
-  # These three non-displayed points define two vectors that
-  # are used to compute the "is facing us" normal vector.
-  function normalBasis {
-    echo "-$1 $1 0 1  $1 $1 0 1  -$1 -$1 0 1 "
-  }
-  function makeHand { echo 0 $((-$1*r/10)) 0 1  0 $((-$2*r/10)) 0 1; }
-  twelve=$(echo  $(normalBasis $r); makeHand 2 8)
-  myclock=$(echo $(normalBasis $r); for s in 10 20 30 40 50 60 70 80 90 100 110; do matMult $(matMultXform $(matRotz s) $(matTrans 0 0 1)) $(makeHand 2 7); done )
-  mymin=$(echo   $(normalBasis $r); matMult $(matRotz              $min) $(makeHand 0 7))
-  myhour=$(echo  $(normalBasis $r); matMult $(matRotz  $((hour+min/12))) $(makeHand 2 4))
-  mysec=$(echo   $(normalBasis $r); matMult $(matRotz              $sec) $(makeHand 6 7))
-
-  #makePoints FLOOR    \# 4 y $(matMult $(matMultXform $(matRotx 30) $(matTrans 0 0 $r)) -55 55 0 1  55 55 0 1  -55 -55 0 1   55 -55 0 1    -55 -55 0 1    -55 55 0 1    55 55 0 1)
-
-  makePoints A        \# 9 y $boxa
-  makePoints clock    \. 8 l  $(matMult      $matrixCubeFacea $myclock)
-  makePoints twelve   \. 15 l $(matMult      $matrixCubeFacea $twelve)
-  makePoints handmin  $animal1 6 l $(matMult $matrixCubeFacea $mymin)
-  makePoints handhour $animal2 2 l $(matMult $matrixCubeFacea $myhour)
-  makePoints handsec  $animal3 5 l $(matMult $matrixCubeFacea $mysec)
-
-  makePoints B        \# 10 y $boxb
-  makePoints clock    \. 8  l $(matMult       $matrixCubeFaceb $myclock)
-  makePoints twelve   \. 15 l $(matMult       $matrixCubeFaceb $twelve)
-  makePoints handmin  $animal1 6  l $(matMult $matrixCubeFaceb $mymin)
-  makePoints handhour $animal2 2  l $(matMult $matrixCubeFaceb $myhour)
-  makePoints handsec  $animal3 5  l $(matMult $matrixCubeFaceb $mysec)
-
-  makePoints C        \# 12 y $boxc
-  makePoints clock    \. 8  l $(matMult       $matrixCubeFacec $myclock)
-  makePoints twelve   \. 15 l $(matMult       $matrixCubeFacec $twelve)
-  makePoints handmin  $animal1 6  l $(matMult $matrixCubeFacec $mymin)
-  makePoints handhour $animal2 2  l $(matMult $matrixCubeFacec $myhour)
-  makePoints handsec  $animal3 5  l $(matMult $matrixCubeFacec $mysec)
-
-  makePoints D        \# 14 y $boxd
-  makePoints clock    \. 8  l $(matMult       $matrixCubeFaced $myclock)
-  makePoints twelve   \. 15 l $(matMult       $matrixCubeFaced $twelve)
-  makePoints handmin  $animal1 6  l $(matMult $matrixCubeFaced $mymin)
-  makePoints handhour $animal2 2  l $(matMult $matrixCubeFaced $myhour)
-  makePoints handsec  $animal3 5  l $(matMult $matrixCubeFaced $mysec)
-
-  makePoints E        \# 11 y $boxe
-  makePoints clock    \. 8  l $(matMult       $matrixCubeFacee $myclock)
-  makePoints twelve   \. 15 l $(matMult       $matrixCubeFacee $twelve)
-  makePoints handmin  $animal1 6  l $(matMult $matrixCubeFacee $mymin)
-  makePoints handhour $animal2 2  l $(matMult $matrixCubeFacee $myhour)
-  makePoints handsec  $animal3 5  l $(matMult $matrixCubeFacee $mysec)
-
-  makePoints F        \# 13 y $boxf
-  makePoints clock    \. 8  l $(matMult       $matrixCubeFacef $myclock)
-  makePoints twelve   \. 15 l $(matMult       $matrixCubeFacef $twelve)
-  makePoints handmin  $animal1 6  l $(matMult $matrixCubeFacef $mymin)
-  makePoints handhour $animal2 2  l $(matMult $matrixCubeFacef $myhour)
-  makePoints handsec  $animal3 5  l $(matMult $matrixCubeFacef $mysec)
-}
-
-function buildBoxes {
-  local r=$1
-  local d=$2
-  local box="-$r $r 0 1  $r $r 0 1  -$r -$r 0 1   $r -$r 0 1    -$r -$r 0 1    -$r $r 0 1    $r $r 0 1 "
-  local faceRotationa=$(matMultXform $(matRoty 0)  $(matTrans 0 0 -$r))
-  local faceRotationb=$(matMultXform $(matRoty 30) $(matTrans 0 0 -$r))
-  local faceRotationc=$(matMultXform $(matRoty 60) $(matTrans 0 0 -$r))
-  local faceRotationd=$(matMultXform $(matRoty 90) $(matTrans 0 0 -$r))
-  local faceRotatione=$(matMultXform $(matRotx 30) $(matTrans 0 0 -$r))
-  local faceRotationf=$(matMultXform $(matRotx 90) $(matTrans 0 0 -$r))
-  local facea=$(matMult $faceRotationa $box)
-  local faceb=$(matMult $faceRotationb $box)
-  local facec=$(matMult $faceRotationc $box)
-  local faced=$(matMult $faceRotationd $box)
-  local facee=$(matMult $faceRotatione $box)
-  local facef=$(matMult $faceRotationf $box)
-  local c=(. o O 0 @ \&)
-
-  makePoints A        ${c[0]} 2 y $(matMult $(matTrans 0 0 -$d) $facea)
-  makePoints A        ${c[0]} 2 y $(matMult $(matTrans 0 0 -$d) $faceb)
-  makePoints A        ${c[0]} 2 y $(matMult $(matTrans 0 0 -$d) $facec)
-  makePoints A        ${c[0]} 2 y $(matMult $(matTrans 0 0 -$d) $faced)
-  makePoints A        ${c[0]} 2 y $(matMult $(matTrans 0 0 -$d) $facee)
-  makePoints A        ${c[0]} 2 y $(matMult $(matTrans 0 0 -$d) $facef)
-
-  makePoints A        ${c[1]} 4 y $(matMult $(matTrans 0 0 $d) $facea)
-  makePoints A        ${c[1]} 4 y $(matMult $(matTrans 0 0 $d) $faceb)
-  makePoints A        ${c[1]} 4 y $(matMult $(matTrans 0 0 $d) $facec)
-  makePoints A        ${c[1]} 4 y $(matMult $(matTrans 0 0 $d) $faced)
-  makePoints A        ${c[1]} 4 y $(matMult $(matTrans 0 0 $d) $facee)
-  makePoints A        ${c[1]} 4 y $(matMult $(matTrans 0 0 $d) $facef)
-
-  makePoints A        ${c[2]} 5 y $(matMult $(matTrans 0 $d 0) $facea)
-  makePoints A        ${c[2]} 5 y $(matMult $(matTrans 0 $d 0) $faceb)
-  makePoints A        ${c[2]} 5 y $(matMult $(matTrans 0 $d 0) $facec)
-  makePoints A        ${c[2]} 5 y $(matMult $(matTrans 0 $d 0) $faced)
-  makePoints A        ${c[2]} 5 y $(matMult $(matTrans 0 $d 0) $facee)
-  makePoints A        ${c[2]} 5 y $(matMult $(matTrans 0 $d 0) $facef)
-
-  makePoints A        ${c[3]} 8 y $(matMult $(matTrans 0 -$d 0) $facea)
-  makePoints A        ${c[3]} 8 y $(matMult $(matTrans 0 -$d 0) $faceb)
-  makePoints A        ${c[3]} 8 y $(matMult $(matTrans 0 -$d 0) $facec)
-  makePoints A        ${c[3]} 8 y $(matMult $(matTrans 0 -$d 0) $faced)
-  makePoints A        ${c[3]} 8 y $(matMult $(matTrans 0 -$d 0) $facee)
-  makePoints A        ${c[3]} 8 y $(matMult $(matTrans 0 -$d 0) $facef)
-
-  makePoints A        ${c[4]} 6 y $(matMult $(matTrans -$d 0 0) $facea)
-  makePoints A        ${c[4]} 6 y $(matMult $(matTrans -$d 0 0) $faceb)
-  makePoints A        ${c[4]} 6 y $(matMult $(matTrans -$d 0 0) $facec)
-  makePoints A        ${c[4]} 6 y $(matMult $(matTrans -$d 0 0) $faced)
-  makePoints A        ${c[4]} 6 y $(matMult $(matTrans -$d 0 0) $facee)
-  makePoints A        ${c[4]} 6 y $(matMult $(matTrans -$d 0 0) $facef)
-
-  makePoints A        ${c[5]} 1 y $(matMult $(matTrans $d 0 0) $facea)
-  makePoints A        ${c[5]} 1 y $(matMult $(matTrans $d 0 0) $faceb)
-  makePoints A        ${c[5]} 1 y $(matMult $(matTrans $d 0 0) $facec)
-  makePoints A        ${c[5]} 1 y $(matMult $(matTrans $d 0 0) $faced)
-  makePoints A        ${c[5]} 1 y $(matMult $(matTrans $d 0 0) $facee)
-  makePoints A        ${c[5]} 1 y $(matMult $(matTrans $d 0 0) $facef)
-}
 
 function buildTexturedCubes {
   local r=$1 # radius of the cubes
@@ -1129,124 +973,100 @@ function buildFloor {
 }
 
 
-# How to reference later on to apply transformations?
-#
-# Replace below with something that registers points (which may move) and faces that can be drawn from said points
-# The first three points of the face defines two vectors for normal computation
-#  points: a b c d  e f g h ...
-#   faces: 0 1 2 3  4 5 6 7  1 0 4 5  1 2 5 6 ...
-#    norm: 0 1 3    4 5 7    1 0 5
-bb=0
+
+#bb=0
+#function updateBoxes {
+#  vectors[(bb+0)*4+1]=$((SINTABLE[(1*frame+10)%120]/8))
+#  vectors[(bb+1)*4+1]=$((SINTABLE[(1*frame+21)%120]/8))
+#  vectors[(bb+2)*4+1]=$((SINTABLE[(1*frame+32)%120]/8))
+#  vectors[(bb+3)*4+1]=$((SINTABLE[(1*frame+43)%120]/8))
+#  vectors[(bb+4)*4+1]=$((SINTABLE[(1*frame+61)%120]/8))
+#  vectors[(bb+5)*4+1]=$((SINTABLE[(1*frame+72)%120]/8))
+#  vectors[(bb+6)*4+1]=$((SINTABLE[(1*frame+83)%120]/8))
+#  vectors[(bb+7)*4+1]=$((SINTABLE[(1*frame+94)%120]/8))
+#}
 function buildSimpleBox {
   # (1) Create the points
   local ret r=$1 idx
-
   vectorsAppend -$r $r $r 1  $r $r $r 1  $r -$r $r 1  -$r -$r $r 1   -$r $r -$r 1  $r $r -$r 1  $r -$r -$r 1  -$r -$r -$r 1
   #objectsAdd POINTS p 3 x 1  $(eval echo {$ret..$((ret+7))})
   objectsAdd BOX   y 6 + 1  $(range $ret $((ret+3)))  # back
   objectsAdd BOX   y 6 + 1  $(range $((ret+4)) $((ret+7)))  # front
   objectsAdd EDGES l 6 + 1  $((ret+1)) $((ret+5))  $((ret+2)) $((ret+6))  $((ret+3)) $((ret+7))  $((ret+4)) $ret
-
-  r=$((r/1))
+  r=$((r/2))
   vectorsAppend -$r $r $r 1  $r $r $r 1  $r -$r $r 1  -$r -$r $r 1   -$r $r -$r 1  $r $r -$r 1  $r -$r -$r 1  -$r -$r -$r 1
-  bb=$ret
-  objectsAdd POINTS y 2 x 1  $((ret+0)) $((ret+1)) $((ret+5)) $((ret+4))
-
+  #bb=$ret
+  objectsAdd POINTS y 2 y 1  $(range $((ret+0)) $((ret+7)))
 }
 
-function updateBoxes {
-  vectors[(bb+0)*4+1]=$((SINTABLE[(1*frame+10)%120]/8))
-  vectors[(bb+1)*4+1]=$((SINTABLE[(1*frame+21)%120]/8))
-  vectors[(bb+2)*4+1]=$((SINTABLE[(1*frame+32)%120]/8))
-  vectors[(bb+3)*4+1]=$((SINTABLE[(1*frame+43)%120]/8))
-  vectors[(bb+4)*4+1]=$((SINTABLE[(1*frame+61)%120]/8))
-  vectors[(bb+5)*4+1]=$((SINTABLE[(1*frame+72)%120]/8))
-  vectors[(bb+6)*4+1]=$((SINTABLE[(1*frame+83)%120]/8))
-  vectors[(bb+7)*4+1]=$((SINTABLE[(1*frame+94)%120]/8))
+function buildUrchin {
+  local origin ret c=$1 r=$2
+
+  while [ 0 -lt $c ]; do
+    vectorsAppend $(matMult $(matMultXform $(matTrans 40 -20 0) $(matRotx $((RANDOM%120))) $(matRoty $((RANDOM%120))) $(matRotz $((RANDOM%120))) ) $((r/2)) 0 0 1 $r 0 0 1)
+    objectsAdd LINE l $((RANDOM%15+1)) . 1 $origin $ret $((ret+1))
+   c=$((c-1))
+  done
 }
+
+
 
 
 ##
-## Sigwinch stuff
+## Exception handlers
 ##
-sigwinch=false
-function handleSigwinch {
-  echo handler
-  terminalProbe
-  resetScreenBuffer
-  renderObjects # -resetCritters
-  sigwinch=false
-}
+function handler_sigint { powerButton=false; }
+function handler_sigwinch { sigwinch=true; }
 
 
 ##
 ## USAGE:  basciiclock [a|b] {frame count}
 ##
-once=true
-framestop=${2:--1}
-function main_sigint {
-  powerButton=false # why does this mechanism result in framebuffer files being left behind?
-  framestop=$((frame+20)) # files left behind if 1
-}
-function main_sigwinch { sigwinch=true; }
-
 function main {
-  [ 2 -eq $# ] && framestop=$2
-  trap main_sigint   SIGINT
-  trap main_sigint   SIGQUIT
-  trap main_sigwinch SIGWINCH
+  framestop=${1:--1}
+  trap handler_sigint   SIGINT
+  trap handler_sigint   SIGQUIT
+  trap handler_sigwinch SIGWINCH
   printf "\e[?25l" # Disable cursor
   terminalProbe
-  resetScreenBuffer
+  resetEmptyBuffers
   resetCritters
-  case $1 in (a)
-    #buildSimpleBox 10
-    #buildTexturedCubes 7 35 3
-    #buildFloor 40 20 4
+
+  buildUrchin 100 40
+  #buildSimpleBox 30
+  #buildTexturedCubes 7 35 3
+  buildFloor 40 20 4
+  if :; then
     buildClock 20 0
     buildClock 20 1
     buildClock 20 2
     buildClock 20 3
     buildClock 20 4
     buildClock 20 5
-    #vectorsDump
-    #objectsDump
-    #planesDump
-    #read -n 1 -p 'Abort, Retry, Fail?' k
-    while [ ! -e stop ] && $powerButton && [ $frame != $((framestop)) ] ; do
-      $sigwinch && { wait; handleSigwinch; }
-      # Recompute models.  They might be time dependent like a real-time analog clock.
-      if $once && [ "$jiffy" != $(date +%s) ]; then
-        once=false jiffy=$(date +%s)
-        timeProbe # $((frame*483))
-        #vectorsDump
-        #objectsDump
-        #read -n 1 -p 'Abort, Retry, Fail?' k
-      fi
-      renderObjects
-      #updateClock
-      #updateBoxes
-    done
-  ;; (b)
-    buildClock 9 0
-    buildClock 9 1
-    buildClock 9 2
-    buildClock 9 3
-    buildFloor 40 20 4
-    buildSimpleBox 15
-    #vectorsDump
-    #objectsDump
-    #planesDump
-    #read -n 1 -p 'Abort, Retry, Fail?' k
-    while $powerButton && [ $frame != $framestop ] ; do
-      $sigwinch && { wait;  handleSigwinch; }
-      renderObjects
-      #updateBoxes
-    done
-  ;; esac
+  fi
+  #vectorsDump
+  #objectsDump
+  #planesDump
+  #read -n 1 -p 'Abort, Retry, Fail?' k
+  while [ ! -e stop ] && $powerButton && [ $frame -ne $framestop ] ; do
+    if [ $jiffy != $SECONDS ]; then
+      timeProbe # $((frame*483))
+      jiffy=$SECONDS
+    fi
+    if $sigwinch; then
+      echo handler
+      wait
+      terminalProbe
+      resetEmptyBuffers
+      sigwinch=false
+    fi
+    renderObjects
+    #updateClock
+    #updateBoxes
+  done
   wait
   printf "\e[?25h\nDone.\n" # Enable cursor
 }
 
 #time main b 30 # Time run 60 frames
-time main ${1:-a} # Run indefinitely or until ^C
+time main -10 # Run indefinitely or until ^C
