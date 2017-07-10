@@ -4,6 +4,7 @@
 ## _Concepts_
 ## _Testing_
 ## _Planes_
+## _Matrices_
 
 #### _Concepts_
 ##
@@ -56,6 +57,12 @@
 ##
 ##  Objects that share a facing normal will share a common normal to be transformed
 ##  and calculated en masse prior to scheduling the rest of the rendering.
+##
+## Object transform List
+##
+##  Transformation matrix applied to one or more facing and object groups.  The global
+##  matrix needs to be applied first before using so there needs to be a pre and
+##  post transformed list.
 ##
 ####
 
@@ -317,10 +324,10 @@ function terminalDrawLineDirect {
 ##
 ## Debugging
 ##
-dv   (){ while [ 0 -lt $# ]; do printf '[%3d %3d %3d %3d ]\n' $1 $2 $3 $4; shift 4; done; }
+dv   (){ while [ 0 -lt $# ]; do printf '[%3d %3d %3d %3d ]\n' $1 $2 $3 $4; shift; shift; shift; shift ; done; }
 dvgl (){ while [ 0 -lt $# ]; do printf "($2 $3 $4 $5 $6)\n"; shift 6; done; }
 dvn  (){ while [ 0 -lt $# ]; do printf '[%6d %6d %6d %6d | %6d]\n' $(($1/$4)) $(($2/$4)) $(($3/$4)) $(($4/$4)) $4; shift 4; done; }
-dm4  (){ printf '[%9d %9d %9d %9d]\n' $1 $2 $3 $4 $5 $6 $7 $8 $9 ${10} ${11} ${12} ${13} ${14} ${15} ${16}; }
+dm4  (){ while [ 0 -lt $# ]; do printf '[%9d %9d %9d %9d]\n' $1 $2 $3 $4 $5 $6 $7 $8 $9 ${10} ${11} ${12} ${13} ${14} ${15} ${16}; echo; shift 16; done; }
 COLORS=('0' '0;31' '0;32' '0;33' '0;34' '0;35' '0;36' '0;37' '1;30' '1;31' '1;32' '1;33' '1;34' '1;35' '1;36' '1;37')
 function PC { local c=$1; shift; printf "\e[${COLORS[c]}m$*"; }
 
@@ -338,7 +345,7 @@ function vectorsLength { echo $((${#vectors[*]}/4)); }
 #  z=${vectors[$i*4+2]}
 #  n=${vectors[$i*4+3]}
 #}
-function vectorsAppend { # Args:  x y z n ...
+function vectorsAppend { # [x y z n ...] => &ret
   local len=${#vectors[*]}
   ret=$((len/4)) # keep track of the starting vector index
   while [ 0 -lt $# ]; do
@@ -361,27 +368,35 @@ function vectorsDump {
 
 #### _Planes_
 ##
-## Array of indices into the vectors array pointing at groups of 3 vertices.
+## Array of indices into the vectors array pointing at groups of 4 consecutive vertices.  For normal occlusion.
 ##
-planes=()    # Array of vector indices that reference three points defining a plane
+planes=(-1 -1 -1 -1)    # Array of vector indices and matrix indices that reference three consecutive points in the vectors array defining a plane
 facing=(1 0) # Result of normal calc for each plane (group of 3 normalized vertices) with two defaults (false true)
-function planesLength { echo $((${#planes[*]})); }
-function planesAppend { # Args:  vectorsIdx... 
+function planesLength { echo $((${#planes[*]}/2)); }
+function planesAppend { # [ vectorsIdx matrixIdx ... ] => &ret
   local len=${#planes[*]}
-  ret=$((len+2))
+  ret=$((len/2))
   while [ 0 -lt $# ]; do
     planes[len]=$1
-    facing[len+2]=0
-    shift
-    len=$((len+1))
+    planes[len+1]=$2
+
+    facing[len/2]=-1
+    shift ; shift
+    len=$((len+2))
   done
 }
 
 function planesDump {
-  local i=0 v
+  local i=2 v m max=$(planesLength)
   echo "-- $(planesLength) planes ----"
-  for v in ${planes[*]}; do
-    echo $((v)) $(dv ${vectors[*]:v*4:12}) "${facing[i+2]}"
+
+  echo 0: vecIdx=na matIdx=na [na] [na] [na] facing="${facing[0]}"
+  echo 1: vecIdx=na matIdx=na [na] [na] [na] facing="${facing[1]}"
+
+  while [ $i -lt $max ]; do
+    v=${planes[i*2]}
+    m=${planes[i*2+1]}
+    echo $i: vecIdx=$v matIdx=$m $(dv ${vectors[*]:v*4:12}) facing="${facing[i]}"
     i=$((i+1))
   done
 }
@@ -390,12 +405,15 @@ assertEquals Planes \
 "$(vectorsAppend 0 0 0 0  1 1 1 1  2 2 2 2
    vectorsAppend 8 0 0 0  8 1 1 1  8 2 2 2
    vectorsAppend 9 0 0 0  9 1 1 1  9 2 2 2
-   planesAppend 0 3 6
+   planesAppend 0 0  3 0  6 1
    planesDump)" \
-"$(echo '-- 3 planes ----'
-   echo '0 [ 0 0 0 0 ] [ 1 1 1 1 ] [ 2 2 2 2 ] 0'
-   echo '3 [ 8 0 0 0 ] [ 8 1 1 1 ] [ 8 2 2 2 ] 0'
-   echo '6 [ 9 0 0 0 ] [ 9 1 1 1 ] [ 9 2 2 2 ] 0')"
+"$(echo '-- 5 planes ----'
+   echo '0: vecIdx=na matIdx=na [na] [na] [na] facing=1'
+   echo '1: vecIdx=na matIdx=na [na] [na] [na] facing=0'
+   echo '2: vecIdx=0 matIdx=0 [ 0 0 0 0 ] [ 1 1 1 1 ] [ 2 2 2 2 ] facing=-1'
+   echo '3: vecIdx=3 matIdx=0 [ 8 0 0 0 ] [ 8 1 1 1 ] [ 8 2 2 2 ] facing=-1'
+   echo '4: vecIdx=6 matIdx=1 [ 9 0 0 0 ] [ 9 1 1 1 ] [ 9 2 2 2 ] facing=-1')"
+
 ##
 #### _Planes_
 
@@ -403,20 +421,21 @@ assertEquals Planes \
 ##
 ## Objects: Array of objects representing points, lines, and closed polygon
 ##
-objects=() #( label type color char idxCount idx... ...)
+objects=() #( label type color char preMatIdx planeIdx vecIdxCount vecIdx... ...)
 
 function objectsLength { : || complicated;  }
 
-function objectsAdd { # Args: label type color char planesIdx count vectorsIdx...
+function objectsAdd { # Args: label type color char matIdx planeIdx vectorsIdx...
   local len=${#objects[*]}
   objects[len+0]=$1 # label
   objects[len+1]=$2 # type
   objects[len+2]=$3 # color
   objects[len+3]=$4 # char
-  objects[len+4]=$5 # planesIdx
-  shift 5
-  objects[len+5]=$(($#)) # vector count
-  len=$((len+6))
+  objects[len+4]=$5 # matIdx
+  objects[len+5]=$6 # planeIdx
+  shift 6
+  objects[len+6]=$(($#)) # vector count
+  len=$((len+7))
   while [ 0 -lt $# ]; do
     objects[len]=$1
     shift
@@ -426,24 +445,25 @@ function objectsAdd { # Args: label type color char planesIdx count vectorsIdx..
 
 function objectsDump {
   echo "-- objects ----"
-  local oi=0 max=${#objects[*]} count p
+  local oi=0 max=${#objects[*]} count p c=0
   while [ $oi -lt $max ]; do
-    printf "%8s %s [%d%s]" "\"${objects[oi+0]}\"" ${objects[oi+1]} ${objects[oi+2]} ${objects[oi+3]}
-    p=${objects[oi+4]}
+    printf "%d %8s %s [%d%s] m=%d " $c "\"${objects[oi+0]}\"" ${objects[oi+1]} ${objects[oi+2]} ${objects[oi+3]} ${objects[oi+4]}
+    p=${objects[oi+5]}
     case $p in
       (0) printf "{F}" ;;
       (1) printf "{T}" ;;
       (*) printf "{%d}" $((p-2)) ;;
     esac
-    count=${objects[oi+5]}
+    count=${objects[oi+6]}
     printf " $count:"
-    oi=$((oi+6))
-    case ${objects[oi-5]} in
+    oi=$((oi+7))
+    case ${objects[oi-6]} in
       (*) printf " %s" ${objects[*]:oi:count} ;;      # Dump indices representing each point
       (l) printf " %2d-%-2d" ${objects[*]:oi:count} ;; # Dump index pairs representing a line
     esac
     echo "."
     oi=$((oi + count))
+    c=$((c+1))
   done
 }
 
@@ -522,9 +542,18 @@ function matMultXform () {
    shift 16
  done
 }
+assertEquals matMultXform \
+ "$(matMultXform 2 0 0 0  0 3 0 0  0 0 4 0  0 0 0 5 \
+                 2 3 4 5  9 8 7 6  3 9 7 5  8 2 4 6 \
+                 0 0 0 1  0 0 1 0  0 1 0 0  1 0 0 0)" \
+ "$(echo '10 8 6 4 18 21 24 27 20 28 36 12 30 20 10 40')"
+assertEquals matMultXform \
+ "$(matMultXform 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17   2 3 4 5  6 7 8 9  10 11 12 13  14 15 16 17)" \
+ "$(echo '132 146 160 174 260 290 320 350 388 434 480 526 516 578 640 702')"
+
 
 # This isn't any faster.  Expects &mat and N matrices passed symbolically expanded.
-function matMultXformLocal () {
+function matMultXformLocal () { # &mat
  local a b c d
  while :; do
    a=${mat[0]}
@@ -573,13 +602,152 @@ function matMultLocal { # &mat &vx &vy &vz &vn => &x &y &z &n
 }
 
 
+##
+## _Matrices_
+##
+matstat=(1 0 0 0  0 1 0 0  0 0 1 0  0 0 0 1) # Static list of matrices.  First one is the global transform matrix.  Starts off as identity and is mutated.
+mattrans=(1 0 0 0  0 1 0 0  0 0 1 0  0 0 0 1) # Transformed (by the global mat) matrices.  Recalculated every frame.
+
+function matAppend { # => &ret
+  local len=${#matstat[*]}
+  ret=$((len/16)) # keep track of the starting vector index
+  while [ 16 -le $# ]; do
+    matstat[len+0]=$1;     matstat[len+1]=$2;     matstat[len+2]=$3;     matstat[len+3]=$4
+    matstat[len+4]=$5;     matstat[len+5]=$6;     matstat[len+6]=$7;     matstat[len+7]=$8
+    matstat[len+8]=$9;     matstat[len+9]=${10};  matstat[len+10]=${11}; matstat[len+11]=${12}
+    matstat[len+12]=${13}; matstat[len+13]=${14}; matstat[len+14]=${15}; matstat[len+15]=${16}
+    shift 16
+    len=$((len+16))
+   done
+}
+
+function matSet { # &len
+  local x=$(($1*16)) # start at matrix index $1
+  matstat[x+0]=$2;     matstat[x+1]=$3;     matstat[x+2]=$4;     matstat[x+3]=$5
+  matstat[x+4]=$6;     matstat[x+5]=$7;     matstat[x+6]=$8;     matstat[x+7]=$9
+  matstat[x+8]=${10};  matstat[x+9]=${11};  matstat[x+10]=${12}; matstat[x+11]=${13}
+  matstat[x+12]=${14}; matstat[x+13]=${15}; matstat[x+14]=${16}; matstat[x+15]=${17}
+
+  mattrans[x+0]=$2;     mattrans[x+1]=$3;     mattrans[x+2]=$4;     mattrans[x+3]=$5
+  mattrans[x+4]=$6;     mattrans[x+5]=$7;     mattrans[x+6]=$8;     mattrans[x+7]=$9
+  mattrans[x+8]=${10};  mattrans[x+9]=${11};  mattrans[x+10]=${12}; mattrans[x+11]=${13}
+  mattrans[x+12]=${14}; mattrans[x+13]=${15}; mattrans[x+14]=${16}; mattrans[x+15]=${17}
+}
+
+function matTransformStatic { # &mat &matstat $mattrans
+ local a=${matstat[0]} b=${matstat[1]} c=${matstat[2]} d=${matstat[3]} e=${matstat[4]} f=${matstat[5]} g=${matstat[6]} h=${matstat[7]} i=${matstat[8]} j=${matstat[9]} k=${matstat[10]} l=${matstat[11]} m=${matstat[12]} n=${matstat[13]} o=${matstat[14]} p=${matstat[15]} aa bb cc dd ee ff gg hh ii jj kk ll mm nn oo pp
+ local x=16 max=${#matstat[*]}
+ while [ $x -lt $max ] ; do
+   aa=${matstat[x+0]}  bb=${matstat[x+1]}  cc=${matstat[x+2]}  dd=${matstat[x+3]}
+   ee=${matstat[x+4]}  ff=${matstat[x+5]}  gg=${matstat[x+6]}  hh=${matstat[x+7]}
+   ii=${matstat[x+8]}  jj=${matstat[x+9]}  kk=${matstat[x+10]} ll=${matstat[x+11]}
+   mm=${matstat[x+12]} nn=${matstat[x+13]} oo=${matstat[x+14]} pp=${matstat[x+15]}
+   mattrans[x+0]=$((a*aa + b*ee + c*ii + d*mm))
+   mattrans[x+1]=$((a*bb + b*ff + c*jj + d*nn))
+   mattrans[x+2]=$((a*cc + b*gg + c*kk + d*oo))
+   mattrans[x+3]=$((a*dd + b*hh + c*ll + d*pp))
+
+   mattrans[x+4]=$((e*aa + f*ee + g*ii + h*mm))
+   mattrans[x+5]=$((e*bb + f*ff + g*jj + h*nn))
+   mattrans[x+6]=$((e*cc + f*gg + g*kk + h*oo))
+   mattrans[x+7]=$((e*dd + f*hh + g*ll + h*pp))
+
+   mattrans[x+8]=$(( i*aa + j*ee + k*ii + l*mm))
+   mattrans[x+9]=$(( i*bb + j*ff + k*jj + l*nn))
+   mattrans[x+10]=$((i*cc + j*gg + k*kk + l*oo))
+   mattrans[x+11]=$((i*dd + j*hh + k*ll + l*pp))
+
+   mattrans[x+12]=$((m*aa + n*ee + o*ii + p*mm))
+   mattrans[x+13]=$((m*bb + n*ff + o*jj + p*nn))
+   mattrans[x+14]=$((m*cc + n*gg + o*kk + p*oo))
+   mattrans[x+15]=$((m*dd + n*hh + o*ll + p*pp))
+
+   x=$((x+16))
+ done
+}
+
+function matDump {
+  local i=0 v
+  local count=$((${#matstat[*]}/16))
+  for i in $(range 0 $((count - 1))); do
+    echo "-- matrix static $i ----"
+    dm4 ${matstat[*]:i*16:16}
+  done
+}
+
+function matTransDump {
+  local i=0 v
+  local count=$((${#mattrans[*]}/16))
+  for i in $(range 0 $((count - 1))); do
+    echo "-- matrix transformed $i ----"
+    dm4 ${mattrans[*]:i*16:16}
+  done
+}
+
+assertEquals matstat1 \
+ "$(matAppend {1..16}
+    dv ${matstat[*]})" \
+ "$(echo '[  1   0   0   0 ]'
+    echo '[  0   1   0   0 ]'
+    echo '[  0   0   1   0 ]'
+    echo '[  0   0   0   1 ]'
+    echo '[  1   2   3   4 ]'
+    echo '[  5   6   7   8 ]'
+    echo '[  9  10  11  12 ]'
+    echo '[ 13  14  15  16 ]')"
+assertEquals matstat2 \
+ "$(matSet 1 {0..15}
+    dv ${matstat[*]})" \
+ "$(echo '[  1   0   0   0 ]'
+    echo '[  0   1   0   0 ]'
+    echo '[  0   0   1   0 ]'
+    echo '[  0   0   0   1 ]'
+    echo '[  0   1   2   3 ]'
+    echo '[  4   5   6   7 ]'
+    echo '[  8   9  10  11 ]'
+    echo '[ 12  13  14  15 ]')"
+assertEquals matTransformStatic \
+ "$(matSet 0  2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17
+    matAppend 1 0 0 0  0 1 0 0  0 0 1 0  0 0 0 1
+    matAppend 0 0 0 1  0 0 1 0  0 1 0 0  1 0 0 0
+    matAppend 2 3 4 5  6 7 8 9  10 11 12 13  14 15 16 17
+    matTransformStatic
+    matTransDump)" \
+ "$(echo '-- matrix transformed 0 ----'
+    echo '[        2         3         4         5]'
+    echo '[        6         7         8         9]'
+    echo '[       10        11        12        13]'
+    echo '[       14        15        16        17]'
+    echo
+    echo '-- matrix transformed 1 ----'
+    echo '[        2         3         4         5]'
+    echo '[        6         7         8         9]'
+    echo '[       10        11        12        13]'
+    echo '[       14        15        16        17]'
+    echo
+    echo '-- matrix transformed 2 ----'
+    echo '[        5         4         3         2]'
+    echo '[        9         8         7         6]'
+    echo '[       13        12        11        10]'
+    echo '[       17        16        15        14]'
+    echo
+    echo '-- matrix transformed 3 ----'
+    echo '[      132       146       160       174]'
+    echo '[      260       290       320       350]'
+    echo '[      388       434       480       526]'
+    echo '[      516       578       640       702]')"
+##
+#### _Matrices_
+
+
 # Given index into vectors array (... x y z n   x' y' z' n'   x" y" z" n" ...)
 # Which define two vectors starting at x y z,
 # Return true if the normal is facing viewer
 # Completely inlined matrix multiply and normal calculation
 function isObjectFacing { # &planeIndex &mat
-  local vi=$((planeIndex*4)) vi vx vy vz vn x y n nx0 ny0 nn0 nx1 ny1 nn1 xy zy
-
+  local vi=$(($1*4)) vx vy vz vn x y n nx0 ny0 nn0 nx1 ny1 nn1 zx zy
+  local mat=(${mattrans[*]:$2*16:16})
+  
   vx=${vectors[vi]}
   vy=${vectors[vi+1]}
   vz=${vectors[vi+2]}
@@ -699,8 +867,6 @@ jiffy=$SECONDS
 frame=0
 framestop=60
 sigwinch=false
-matrixPerspective=$(matMultXform $(matPerspective 60) $(matTrans 0 0 100) $(matScale 4 2 2))
-#matrixPerspective="$identity"
 
 
 
@@ -724,8 +890,10 @@ function renderObjectSet { # &oil &frame &thread
     type=${objects[oi+1]}
     cl=${objects[oi+2]}
     ch=${objects[oi+3]}
-    count=${objects[oi+5]}
-    oi=$((oi+6))
+    m=${objects[oi+4]}
+    count=${objects[oi+6]}
+    oi=$((oi+7))
+    mat=(${mattrans[*]:$m*16:16})
     last=$((count + oi)) # compute index of last element in this object
       case $type in # &cl &ch &oi &last
        (p) plotPoints ;;
@@ -743,12 +911,12 @@ function scheduleObjectRenderers { # &frame &thread
     type=${objects[oi+1]}
     cl=${objects[oi+2]}
     ch=${objects[oi+3]}
-    plane=${objects[oi+4]}
-    count=${objects[oi+5]}
-    oi=$((oi+6))
+    plane=${objects[oi+5]}
+    count=${objects[oi+6]}
+    oi=$((oi+7))
     last=$((count + oi)) # compute index of last element in this object
     if [ ${facing[plane]} -eq 0 ]; then
-      oil[oilc]=$((oi-6))
+      oil[oilc]=$((oi-7))
       oilc=$((oilc+1))
       if [ 10 -lt $oilc ]; then # more things happen per thread the higher this number is
         thread=$((thread+1))
@@ -768,10 +936,10 @@ function scheduleObjectRenderers { # &frame &thread
 
 function doNormals { # &mat
   local planeIndex i=2 # skip the first two fixed normal bools
-  for planeIndex in ${planes[*]}; do
-    isObjectFacing # &planeIndex &mat
+  local max=$(planesLength)
+  while [ $i -lt $max ]; do
+    isObjectFacing ${planes[i*2]} ${planes[i*2+1]}
     facing[i]=$?
-    #[ ${facing[i]} -eq 0 ] && facingCount=$((facingCount+1))
     i=$((i+1))
   done
 }
@@ -781,14 +949,16 @@ function fillDepthBuffer { # &frame &thread &screenBuffer &depthBuffer
   local idx x y z k c i=0
   for filename in $(prerange ${frame}_ 1 $thread); do
     while [ ! -e $filename ]; do
-      echo $filename no exist
-      sleep 1
+      #1<&2 echo "ERROR: $filename doesn't exist."
+      #sleep 1
+      spin=$((spin+1))
     done # spin until the file is created
     while :; do
       read x y z k c
       if [ -z "$x" ]; then
-        echo "'[$x,$y,$z,$k,$c]' continue..."
-        sleep 1
+        #1<&2 echo "ERROR: nothing read from $filename"
+        #sleep 1
+        spin=$((spin+1))
         continue
       fi
       [ "$x" == q ] && break
@@ -807,16 +977,22 @@ function dumpStats {
   # parent: facing thread
   if [ $SECONDS -ne 0 ]; then
     frameRate=$((100*frame/(SECONDS)))
-    PC 8 "\e[$((THEIGHT-3))Hframe:$frame\nfps:$((frameRate/100)).$((frameRate%100))\nthreads:$thread" # facing:$facingCount
+    PC 8 "\e[$((THEIGHT-4))Hframe:$frame\nfps:$((frameRate/100)).$((frameRate%100))\nthreads:$thread\nspins:$spin"
   fi
 }
 
-function renderObjects {
-  [ $sec == 0 ] || [ "$1" == -resetCritters ] && resetCritters # Animal glyphs reset every minute or screen resize.
-  local facingCount=0 thread=0 screenBuffer depthBuffer max=${#objects[*]} oi=0 label type cl ch plane count x y z n last oil=() oilc=0
-  #local mat=($(matMultXform $matrixPerspective $(matRotz $((frame))) $(matRotx $((frame))) $(matRoty $((frame))) $(matTrans 0 0 0) ))
-  local mat=($(matMultXform $matrixPerspective $(matRoty $((frame/1))) ))
+matrixPerspective=$(matMultXform $(matPerspective 60) $(matTrans 0 0 100) $(matScale 1 1 1))
+#matrixPerspective="$identity"
 
+function renderObjects {
+  [ $sec == 0 ] || [ "$1" == -resetCritters ] && resetCritters # Animal glyphs reset every minute or screen resize. 
+  local thread=0 screenBuffer depthBuffer max=${#objects[*]} oi=0 label type cl ch plane count x y z n last oil=() oilc=0 spin=0
+
+  # New Way of setting global xform matrix
+  #matSet 0  $(matMultXform $matrixPerspective $(matRotx -13) $(matRoty $frame) )
+  matSet 0 $(matMultXform $matrixPerspective $(matRotz $((frame))) $(matRotx $((frame))) $(matRoty $((frame))) $(matTrans 0 0 0) )
+
+  matTransformStatic
   doNormals
   scheduleObjectRenderers # &frame &thread -- Creates files with "x y z k c" per line
   if [ $thread != 0 ]; then
@@ -828,7 +1004,7 @@ function renderObjects {
       trap : SIGWINCH
       fillDepthBuffer # &frame &thread &screenBuffer &depthBuffer
       IFS=''
-      printf "\e[H${screenBuffer[*]}$(dumpStats)" # &facingCount &thread
+      printf "\e[H${screenBuffer[*]}$(dumpStats)" # &thread
       unset IFS
     fi &
   fi
@@ -858,21 +1034,21 @@ function buildClock {
   # plane vectors for normal calculatoin.
   # The first three vectors will be used to calculate the culling normal for the entire clock.
   vectorsAppend  $(matMult $tr  0 0 0 1   $r 0 0 1   0 $s 0 1)
-  idx=$ret # The index to these vectors is used a bunch of times
-  planesAppend $idx # Register the vectors index of these three points
+  vidx=$ret # The index to these vectors is used a bunch of times
+  planesAppend $vidx 0 # Register the vectors index of these three points
   pidx=$ret # Keep track of this plane's index as it's used by all the objects on this plane
 
   vectorsAppend  $(matMult $tr  0 $s 0 1   $r 0 0 1   $r $r 0 1)
-  objectsAdd HOUR l 6 _  $pidx $idx $((ret))
-  objectsAdd MIN  l 2 _  $pidx $idx $((ret+1))
-  objectsAdd SEC  l 5 _  $pidx $idx $((ret+2))
+  objectsAdd HOUR l 6 _  0 $pidx $vidx $((ret))
+  objectsAdd MIN  l 2 _  0 $pidx $vidx $((ret+1))
+  objectsAdd SEC  l 5 _  0 $pidx $vidx $((ret+2))
 
   vectorsAppend  $(matMult $tr  $s $s 0 1  $r $s 0 1   $r $r 0 1  $s $r 0 1 )
-  objectsAdd BOX  y $((face+1)) . $pidx $((ret)) $((ret+1)) $((ret+2)) $((ret+3))
+  objectsAdd BOX  y $((face+1)) . 0 $pidx $((ret)) $((ret+1)) $((ret+2)) $((ret+3))
 
   for s in 10 20 30 40 50 60 70 80 90 100 110; do
     vectorsAppend $(matMult $(matMultXform $tr $(matRotz $s))  0 $((r/2)) 0 1   0 $r 0 1)
-    objectsAdd TICK l 8 . $pidx $ret $((ret + 1))
+    objectsAdd TICK l 8 . 0 $pidx $ret $((ret + 1))
   done
 }
 
@@ -895,7 +1071,7 @@ function buildTexturedCubes {
   local d=$3 # density of the cubes
   function buildTexturedFace {
     local  x  y=$((-r/d-0))
-    echo $y $y 0 1   $y $((r/d-1)) 0 1   $((r/d-1)) $y 0 1
+    echo $y $y 0 1   $y $((r/d-1)) 0 1   $((r/d-1)) $y 0 1 # normal plane
     while [ $y -le $((r/d)) ]; do
       x=$((-r/d-0))
       while [ $x -le $((r/d)) ]; do
@@ -916,37 +1092,50 @@ function buildTexturedCubes {
       (*) exit -1
     esac
   }
-  function buildTexturedCube {
-    local ret idx pidx
+  function buildTexturedCube { # [x y z]
+    local ret vidx idx midx pidx
+    local tf=$(buildTexturedFace)
 
-    vectorsAppend $(matMult $(buildFaceRotation 0 $1 $2 $3) $(buildTexturedFace)); idx=$ret
-    planesAppend $idx; pidx=$ret
-    objectsAdd CUBE p 1 @  $pidx $(range $((idx+3)) $((idx+3+$(( $(vectorsLength) - idx - 4 ))))) # color char idx...
+    vectorsAppend $tf; vidx=$ret
+    matAppend $(buildFaceRotation 0 $1 $2 $3); midx=$ret
+    planesAppend $vidx $midx; pidx=$ret
+    objectsAdd CUBE p 1 @ $midx $pidx $(range $((vidx+3)) $((vidx+3+$(( $(vectorsLength) - vidx - 4 )))))
 
-    vectorsAppend $(matMult $(buildFaceRotation 1 $1 $2 $3) $(buildTexturedFace)); idx=$ret
-    planesAppend $idx; pidx=$ret
-    objectsAdd CUBE p 2 @  $pidx $(range $((idx+3)) $((idx+3+$(( $(vectorsLength) - idx - 4 ))))) # color char idx...
+    vectorsAppend $tf; vidx=$ret
+    matAppend $(buildFaceRotation 1 $1 $2 $3); midx=$ret
+    planesAppend $vidx $midx; pidx=$ret
+    objectsAdd CUBE p 2 @ $midx $pidx $(range $((vidx+3)) $((vidx+3+$(( $(vectorsLength) - vidx - 4 )))))
 
-    vectorsAppend $(matMult $(buildFaceRotation 2 $1 $2 $3) $(buildTexturedFace)); idx=$ret
-    planesAppend $idx; pidx=$ret
-    objectsAdd CUBE p 3 @  $pidx $(range $((idx+3)) $((idx+3+$(( $(vectorsLength) - idx - 4 ))))) # color char idx...
+    vectorsAppend $tf; vidx=$ret
+    matAppend $(buildFaceRotation 2 $1 $2 $3); midx=$ret
+    planesAppend $vidx $midx; pidx=$ret
+    objectsAdd CUBE p 3 @ $midx $pidx $(range $((vidx+3)) $((vidx+3+$(( $(vectorsLength) - vidx - 4 )))))
 
-    vectorsAppend $(matMult $(buildFaceRotation 3 $1 $2 $3) $(buildTexturedFace)); idx=$ret
-    planesAppend $idx; pidx=$ret
-    objectsAdd CUBE p 4 @  $pidx $(range $((idx+3)) $((idx+3+$(( $(vectorsLength) - idx - 4 ))))) # color char idx...
+    vectorsAppend $tf; vidx=$ret
+    matAppend $(buildFaceRotation 3 $1 $2 $3); midx=$ret
+    planesAppend $vidx $midx; pidx=$ret
+    objectsAdd CUBE p 4 @ $midx $pidx $(range $((vidx+3)) $((vidx+3+$(( $(vectorsLength) - vidx - 4 )))))
 
-    vectorsAppend $(matMult $(buildFaceRotation 4 $1 $2 $3) $(buildTexturedFace)); idx=$ret
-    planesAppend $idx; pidx=$ret
-    objectsAdd CUBE p 5 @  $pidx $(range $((idx+3)) $((idx+3+$(( $(vectorsLength) - idx - 4 ))))) # color char idx...
+    vectorsAppend $tf; vidx=$ret
+    matAppend $(buildFaceRotation 4 $1 $2 $3); midx=$ret
+    planesAppend $vidx $midx; pidx=$ret
+    objectsAdd CUBE p 5 @ $midx $pidx $(range $((vidx+3)) $((vidx+3+$(( $(vectorsLength) - vidx - 4 )))))
 
-    vectorsAppend $(matMult $(buildFaceRotation 5 $1 $2 $3) $(buildTexturedFace)); idx=$ret
-    planesAppend $idx; pidx=$ret
-    objectsAdd CUBE p 6 @  $pidx $(range $((idx+3)) $((idx+3+$(( $(vectorsLength) - idx - 4 ))))) # color char idx...
+    vectorsAppend $tf; vidx=$ret
+    matAppend $(buildFaceRotation 5 $1 $2 $3); midx=$ret
+    planesAppend $vidx $midx; pidx=$ret
+    objectsAdd CUBE p 6 @ $midx $pidx $(range $((vidx+3)) $((vidx+3+$(( $(vectorsLength) - vidx - 4 )))))
+
   }
   buildTexturedCube  $s   10   0
   buildTexturedCube -$s   10   0
   buildTexturedCube   0   10  $s
   buildTexturedCube   0   10 -$s
+
+  buildTexturedCube  $s   -20  $s
+  buildTexturedCube  $s   -20  -$s
+  buildTexturedCube  -$s  -20  -$s
+  buildTexturedCube  -$s  -20   $s
 } # buildTexturedCubes
 
 
@@ -969,7 +1158,7 @@ function buildFloor {
     done
   }
   vectorsAppend $(matMult $(matTrans 0 $s 0) $(buildTexturedFace))
-  objectsAdd FLOOR p 8 .  1 $(range $((ret+3)) $((ret+$(( $(vectorsLength) - ret - 1)))))
+  objectsAdd FLOOR p 8 .  0 1 $(range $((ret+3)) $((ret+$(( $(vectorsLength) - ret - 1)))))
 }
 
 
@@ -989,10 +1178,10 @@ function buildSimpleBox {
   # (1) Create the points
   local ret r=$1 idx
   vectorsAppend -$r $r $r 1  $r $r $r 1  $r -$r $r 1  -$r -$r $r 1   -$r $r -$r 1  $r $r -$r 1  $r -$r -$r 1  -$r -$r -$r 1
-  #objectsAdd POINTS p 3 x 1  $(eval echo {$ret..$((ret+7))})
-  objectsAdd BOX   y 6 + 1  $(range $ret $((ret+3)))  # back
-  objectsAdd BOX   y 6 + 1  $(range $((ret+4)) $((ret+7)))  # front
-  objectsAdd EDGES l 6 + 1  $((ret+1)) $((ret+5))  $((ret+2)) $((ret+6))  $((ret+3)) $((ret+7))  $((ret+4)) $ret
+  #objectsAdd POINTS p 3 x 0 1  $(eval echo {$ret..$((ret+7))})
+  objectsAdd BOX   y 6 + 0 1  $(range $ret $((ret+3)))  # back
+  objectsAdd BOX   y 6 + 0 1  $(range $((ret+4)) $((ret+7)))  # front
+  objectsAdd EDGES l 6 + 0 1  $((ret+1)) $((ret+5))  $((ret+2)) $((ret+6))  $((ret+3)) $((ret+7))  $((ret+4)) $ret
   r=$((r/2))
   vectorsAppend -$r $r $r 1  $r $r $r 1  $r -$r $r 1  -$r -$r $r 1   -$r $r -$r 1  $r $r -$r 1  $r -$r -$r 1  -$r -$r -$r 1
   #bb=$ret
@@ -1000,11 +1189,11 @@ function buildSimpleBox {
 }
 
 function buildUrchin {
-  local origin ret c=$1 r=$2
+  local origin ret c=$1 r=$2 glyphs=('.' '+' '@' 'x' 'o' '-')
 
   while [ 0 -lt $c ]; do
-    vectorsAppend $(matMult $(matMultXform $(matTrans 40 -20 0) $(matRotx $((RANDOM%120))) $(matRoty $((RANDOM%120))) $(matRotz $((RANDOM%120))) ) $((r/2)) 0 0 1 $r 0 0 1)
-    objectsAdd LINE l $((RANDOM%15+1)) . 1 $origin $ret $((ret+1))
+    vectorsAppend $(matMult $(matMultXform $(matTrans 0 0 0) $(matRotx $((RANDOM%120))) $(matRoty $((RANDOM%120))) $(matRotz $((RANDOM%120))) ) $((r/2)) 0 0 1 $r 0 0 1)
+    objectsAdd LINE l $((RANDOM%15+1)) ${glyphs[c%6]} 0 1 $ret $((ret+1))
    c=$((c-1))
   done
 }
@@ -1027,26 +1216,27 @@ function main {
   trap handler_sigint   SIGINT
   trap handler_sigint   SIGQUIT
   trap handler_sigwinch SIGWINCH
-  printf "\e[?25l" # Disable cursor
+  printf "\e[?25l\e[0m" # Disable cursor
   terminalProbe
   resetEmptyBuffers
   resetCritters
 
-  buildUrchin 100 40
+  #buildUrchin 100 60
   #buildSimpleBox 30
-  #buildTexturedCubes 7 35 3
-  buildFloor 40 20 4
+  #buildTexturedCubes 10 35 5
+  #buildFloor 40 20 4
   if :; then
-    buildClock 20 0
-    buildClock 20 1
-    buildClock 20 2
-    buildClock 20 3
-    buildClock 20 4
-    buildClock 20 5
+    buildClock 30 0
+    buildClock 30 1
+    buildClock 30 2
+    buildClock 30 3
+    buildClock 30 4
+    buildClock 30 5
   fi
   #vectorsDump
   #objectsDump
   #planesDump
+  #matDump
   #read -n 1 -p 'Abort, Retry, Fail?' k
   while [ ! -e stop ] && $powerButton && [ $frame -ne $framestop ] ; do
     if [ $jiffy != $SECONDS ]; then
@@ -1068,5 +1258,4 @@ function main {
   printf "\e[?25h\nDone.\n" # Enable cursor
 }
 
-#time main b 30 # Time run 60 frames
 time main -10 # Run indefinitely or until ^C
