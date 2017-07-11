@@ -627,6 +627,14 @@ function matSet { # &len
   matstat[x+4]=$6;     matstat[x+5]=$7;     matstat[x+6]=$8;     matstat[x+7]=$9
   matstat[x+8]=${10};  matstat[x+9]=${11};  matstat[x+10]=${12}; matstat[x+11]=${13}
   matstat[x+12]=${14}; matstat[x+13]=${15}; matstat[x+14]=${16}; matstat[x+15]=${17}
+}
+
+function matSetGlobal { # &len
+  local x=$(($1*16)) # start at matrix index $1
+  matstat[x+0]=$2;     matstat[x+1]=$3;     matstat[x+2]=$4;     matstat[x+3]=$5
+  matstat[x+4]=$6;     matstat[x+5]=$7;     matstat[x+6]=$8;     matstat[x+7]=$9
+  matstat[x+8]=${10};  matstat[x+9]=${11};  matstat[x+10]=${12}; matstat[x+11]=${13}
+  matstat[x+12]=${14}; matstat[x+13]=${15}; matstat[x+14]=${16}; matstat[x+15]=${17}
 
   mattrans[x+0]=$2;     mattrans[x+1]=$3;     mattrans[x+2]=$4;     mattrans[x+3]=$5
   mattrans[x+4]=$6;     mattrans[x+5]=$7;     mattrans[x+6]=$8;     mattrans[x+7]=$9
@@ -634,6 +642,7 @@ function matSet { # &len
   mattrans[x+12]=${14}; mattrans[x+13]=${15}; mattrans[x+14]=${16}; mattrans[x+15]=${17}
 }
 
+# Multiply every static matrix matstat[*] with the global matrix matstat[0] into the mattrans array
 function matTransformStatic { # &mat &matstat $mattrans
  local a=${matstat[0]} b=${matstat[1]} c=${matstat[2]} d=${matstat[3]} e=${matstat[4]} f=${matstat[5]} g=${matstat[6]} h=${matstat[7]} i=${matstat[8]} j=${matstat[9]} k=${matstat[10]} l=${matstat[11]} m=${matstat[12]} n=${matstat[13]} o=${matstat[14]} p=${matstat[15]} aa bb cc dd ee ff gg hh ii jj kk ll mm nn oo pp
  local x=16 max=${#matstat[*]}
@@ -696,7 +705,7 @@ assertEquals matstat1 \
     echo '[  9  10  11  12 ]'
     echo '[ 13  14  15  16 ]')"
 assertEquals matstat2 \
- "$(matSet 1 {0..15}
+ "$(matSetGlobal 1 {0..15}
     dv ${matstat[*]})" \
  "$(echo '[  1   0   0   0 ]'
     echo '[  0   1   0   0 ]'
@@ -707,7 +716,7 @@ assertEquals matstat2 \
     echo '[  8   9  10  11 ]'
     echo '[ 12  13  14  15 ]')"
 assertEquals matTransformStatic \
- "$(matSet 0  2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17
+ "$(matSetGlobal 0  2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17
     matAppend 1 0 0 0  0 1 0 0  0 0 1 0  0 0 0 1
     matAppend 0 0 0 1  0 0 1 0  0 1 0 0  1 0 0 0
     matAppend 2 3 4 5  6 7 8 9  10 11 12 13  14 15 16 17
@@ -971,9 +980,9 @@ matrixPerspective=$(matMultNTrans $(matPerspective 60) $(matTrans 0 0 100) $(mat
 function renderObjects {
   local thread=0 screenBuffer depthBuffer spin=0
   #[ $sec == 0 ] || [ "$1" == -resetCritters ] && resetCritters # Animal glyphs reset every minute or screen resize. 
-  # Global xform matrix
-  #matSet 0  $(matMultNTrans $matrixPerspective $(matRotx -13) $(matRoty $frame) )
-  matSet 0 $(matMultNTrans $matrixPerspective $(matRotz $((frame))) $(matRotx $((frame))) $(matRoty $((frame))) $(matTrans 0 0 0) )
+  ## Global xform matrix
+  matSetGlobal 0  $(matMultNTrans $matrixPerspective $(matRotx -6) $(matRoty $frame) )
+  #matSetGlobal 0 $(matMultNTrans $matrixPerspective $(matRotz $((frame))) $(matRotx $((frame))) $(matRoty $((frame))) $(matTrans 0 0 0) )
   matTransformStatic
   doNormals
   scheduleObjectRenderers # &frame &thread -- Creates files with "x y z k c" per line
@@ -1048,67 +1057,70 @@ function updateClock {
 
 
 function buildTexturedCubes {
-  function buildTexturedFace {
-    local  x  y=$((-r/d-0))
-    echo $y $y 0 1   $y $((r/d-1)) 0 1   $((r/d-1)) $y 0 1 # normal plane
-    while [ $y -le $((r/d)) ]; do
-      x=$((-r/d-0))
-      while [ $x -le $((r/d)) ]; do
-        echo -n "$((d*x)) $((d*y)) 0 1 "
-        x=$((x+1))
-      done
-      y=$((y+1))
-    done
-  }
-  function buildFaceRotation {
-    case $1 in
-      (0) matMultNTrans $(matRoty  0) $(matTrans 0 0 -$r) ;;
-      (1) matMultNTrans $(matRoty 30) $(matTrans 0 0 -$r) ;;
-      (2) matMultNTrans $(matRoty 60) $(matTrans 0 0 -$r) ;;
-      (3) matMultNTrans $(matRoty 90) $(matTrans 0 0 -$r) ;;
-      (4) matMultNTrans $(matRotx 30) $(matTrans 0 0 -$r) ;;
-      (5) matMultNTrans $(matRotx 90) $(matTrans 0 0 -$r) ;;
-      (*) exit -1
-    esac
-  }
   local r=$1 # radius of the cubes
   local s=$2 # distance between cubes
   local d=$3 # density of the cubes
-  local tf=$(buildTexturedFace) ret
+  local ret vidx0 vidx1 vidx2 vidx3 vidx4 vidx5
+
+  # Generate the plane and textured points
+  local  x  y=$((-r/d-0)) i=12
+  local tf=($y $y 0 1   $y $((r/d-1)) 0 1   $((r/d-1)) $y 0 1) # normal plane
+  while [ $y -le $((r/d)) ]; do
+    x=$((-r/d-0))
+    while [ $x -le $((r/d)) ]; do
+      tf[i]=$((d*x))
+      tf[i+1]=$((d*y))
+      tf[i+2]=0
+      tf[i+3]=1
+      i=$((i+4))
+      x=$((x+1))
+    done
+    y=$((y+1))
+  done
+
+  local tflen=$((${#tf[*]}/4))
+
+  # Generate and register the vertices of each face forming the box model
+  vectorsAppend $(matMultTransNVec $(matMultNTrans $(matRoty  0) $(matTrans 0 0 -$r)) ${tf[*]}); vidx0=$ret
+  vectorsAppend $(matMultTransNVec $(matMultNTrans $(matRoty 30) $(matTrans 0 0 -$r)) ${tf[*]}); vidx1=$ret
+  vectorsAppend $(matMultTransNVec $(matMultNTrans $(matRoty 60) $(matTrans 0 0 -$r)) ${tf[*]}); vidx2=$ret
+  vectorsAppend $(matMultTransNVec $(matMultNTrans $(matRoty 90) $(matTrans 0 0 -$r)) ${tf[*]}); vidx3=$ret
+  vectorsAppend $(matMultTransNVec $(matMultNTrans $(matRotx 30) $(matTrans 0 0 -$r)) ${tf[*]}); vidx4=$ret
+  vectorsAppend $(matMultTransNVec $(matMultNTrans $(matRotx 90) $(matTrans 0 0 -$r)) ${tf[*]}); vidx5=$ret
 
   function buildTexturedCube { # (midx)
-    local midx=$1 vidx idx pidx
-
-    vectorsAppend $(matMultTransNVec $(buildFaceRotation 0) $tf); vidx=$ret
-    planesAppend $vidx $midx; pidx=$ret
-    objectsAdd CUBE p 1 @ $midx $pidx $(range $((vidx+3)) $((vidx+3+$(( $(vectorsLength) - vidx - 4 )))))
-
-    vectorsAppend $(matMultTransNVec $(buildFaceRotation 1) $tf); vidx=$ret
-    planesAppend $vidx $midx; pidx=$ret
-    objectsAdd CUBE p 2 @ $midx $pidx $(range $((vidx+3)) $((vidx+3+$(( $(vectorsLength) - vidx - 4 )))))
-
-    vectorsAppend $(matMultTransNVec $(buildFaceRotation 2) $tf); vidx=$ret
-    planesAppend $vidx $midx; pidx=$ret
-    objectsAdd CUBE p 3 @ $midx $pidx $(range $((vidx+3)) $((vidx+3+$(( $(vectorsLength) - vidx - 4 )))))
-
-    vectorsAppend $(matMultTransNVec $(buildFaceRotation 3) $tf); vidx=$ret
-    planesAppend $vidx $midx; pidx=$ret
-    objectsAdd CUBE p 4 @ $midx $pidx $(range $((vidx+3)) $((vidx+3+$(( $(vectorsLength) - vidx - 4 )))))
-
-    vectorsAppend $(matMultTransNVec $(buildFaceRotation 4) $tf); vidx=$ret
-    planesAppend $vidx $midx; pidx=$ret
-    objectsAdd CUBE p 5 @ $midx $pidx $(range $((vidx+3)) $((vidx+3+$(( $(vectorsLength) - vidx - 4 )))))
-
-    vectorsAppend $(matMultTransNVec $(buildFaceRotation 5) $tf); vidx=$ret
-    planesAppend $vidx $midx; pidx=$ret
-    objectsAdd CUBE p 6 @ $midx $pidx $(range $((vidx+3)) $((vidx+3+$(( $(vectorsLength) - vidx - 4 )))))
+    local midx=$1
+    local ret # the transformation matrix index for the normal plane
+    planesAppend $vidx0 $midx
+    objectsAdd FACE0 p 1 @ $midx $ret $(range $((vidx0+3)) $((vidx0+$tflen-1)))
+    planesAppend $vidx1 $midx
+    objectsAdd FACE1 p 2 @ $midx $ret $(range $((vidx1+3)) $((vidx1+$tflen-1)))
+    planesAppend $vidx2 $midx
+    objectsAdd FACE2 p 3 @ $midx $ret $(range $((vidx2+3)) $((vidx2+$tflen-1)))
+    planesAppend $vidx3 $midx
+    objectsAdd FACE3 p 4 @ $midx $ret $(range $((vidx3+3)) $((vidx3+$tflen-1)))
+    planesAppend $vidx4 $midx
+    objectsAdd FACE4 p 5 @ $midx $ret $(range $((vidx4+3)) $((vidx4+$tflen-1)))
+    planesAppend $vidx5 $midx
+    objectsAdd FACE5 p 6 @ $midx $ret $(range $((vidx5+3)) $((vidx5+$tflen-1)))
   }
 
-  matAppend $(matTrans -$s 10   0);  buildTexturedCube $ret
+  # These 6 matrices will affect each of the cube objects
+  matAppend $(matTrans -$s 10   0);  mymat=$ret;  buildTexturedCube $ret
   matAppend $(matTrans   0 10  $s);  buildTexturedCube $ret
   matAppend $(matTrans   0 10 -$s);  buildTexturedCube $ret
   matAppend $(matTrans  $s 10   0);  buildTexturedCube $ret
+  mys=$s
 } # buildTexturedCubes
+
+mys=0
+mymat=0
+function updateBoxes {
+  matSet $((mymat+0)) $(matMultNTrans $(matTrans -$mys 10   0) $(matRotz $((frame*3))))
+  matSet $((mymat+1)) $(matMultNTrans $(matTrans 0   10  $mys) $(matRotz $((frame*3))))
+  matSet $((mymat+2)) $(matMultNTrans $(matTrans 0   10 -$mys) $(matRotz $((frame*3))))
+  matSet $((mymat+3)) $(matMultNTrans $(matTrans $mys  10   0) $(matRotz $((frame*3))))
+}
 
 
 function buildFloor {
@@ -1130,22 +1142,11 @@ function buildFloor {
     done
   }
   vectorsAppend $(matMultTransNVec $(matTrans 0 $s 0) $(buildTexturedFace))
-  objectsAdd FLOOR p 8 .  0 1 $(range $((ret+3)) $((ret+$(( $(vectorsLength) - ret - 1)))))
+  objectsAdd FLOOR p 8 . 0 1 $(range $((ret+3)) $((ret+$(( $(vectorsLength) - ret - 1)))))
 }
 
 
 
-#bb=0
-#function updateBoxes {
-#  vectors[(bb+0)*4+1]=$((SINTABLE[(1*frame+10)%120]/8))
-#  vectors[(bb+1)*4+1]=$((SINTABLE[(1*frame+21)%120]/8))
-#  vectors[(bb+2)*4+1]=$((SINTABLE[(1*frame+32)%120]/8))
-#  vectors[(bb+3)*4+1]=$((SINTABLE[(1*frame+43)%120]/8))
-#  vectors[(bb+4)*4+1]=$((SINTABLE[(1*frame+61)%120]/8))
-#  vectors[(bb+5)*4+1]=$((SINTABLE[(1*frame+72)%120]/8))
-#  vectors[(bb+6)*4+1]=$((SINTABLE[(1*frame+83)%120]/8))
-#  vectors[(bb+7)*4+1]=$((SINTABLE[(1*frame+94)%120]/8))
-#}
 function buildSimpleBox {
   # (1) Create the points
   local ret r=$1 idx
@@ -1156,7 +1157,6 @@ function buildSimpleBox {
   objectsAdd EDGES l 6 + 0 1  $((ret+1)) $((ret+5))  $((ret+2)) $((ret+6))  $((ret+3)) $((ret+7))  $((ret+4)) $ret
   r=$((r/2))
   vectorsAppend -$r $r $r 1  $r $r $r 1  $r -$r $r 1  -$r -$r $r 1   -$r $r -$r 1  $r $r -$r 1  $r -$r -$r 1  -$r -$r -$r 1
-  #bb=$ret
   objectsAdd POINTS y 2 y 1  $(range $((ret+0)) $((ret+7)))
 }
 
@@ -1193,9 +1193,9 @@ function main {
   resetEmptyBuffers
   resetCritters
 
-  #buildUrchin 100 60
-  #buildSimpleBox 10
-  #buildTexturedCubes 10 35 5
+  #buildUrchin 50 90
+  #buildSimpleBox 70
+  buildTexturedCubes 10 80 5
   #buildFloor 40 20 4
   if :; then
     buildClock 30 0
@@ -1224,7 +1224,7 @@ function main {
     fi
     renderObjects
     #updateClock
-    #updateBoxes
+    updateBoxes
   done
   wait
   printf "\e[?25h\nDone.\n" # Enable cursor
