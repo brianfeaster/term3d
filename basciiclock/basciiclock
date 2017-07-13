@@ -911,7 +911,7 @@ function scheduleObjectRenderers { # &frame &thread
     if [ ${facing[plane]} -eq 0 ]; then
       oil[oilc]=$((oi-7))
       oilc=$((oilc+1))
-      if [ 10 -lt $oilc ]; then # more things happen per thread the higher this number is
+      if [ 8 -lt $oilc ]; then # more things happen per thread the higher this number is
         thread=$((thread+1))
         renderObjectSet > "${frame}_$thread" & # &oil
         oil=()
@@ -977,11 +977,13 @@ function dumpStats {
 matrixPerspective=$(matMultNTrans $(matPerspective 60) $(matTrans 0 0 100) $(matScale 1 1 1))
 #matrixPerspective="$matIdent"
 
+matSetGlobal 0  $(matMultNTrans $matrixPerspective $(matRotx -6) )
+
 function renderObjects {
   local thread=0 screenBuffer depthBuffer spin=0
   #[ $sec == 0 ] || [ "$1" == -resetCritters ] && resetCritters # Animal glyphs reset every minute or screen resize. 
   ## Global xform matrix
-  matSetGlobal 0  $(matMultNTrans $matrixPerspective $(matRotx -6) $(matRoty $frame) )
+  #matSetGlobal 0  $(matMultNTrans $matrixPerspective $(matRotx -6) $(matRoty -$frame) )
   #matSetGlobal 0 $(matMultNTrans $matrixPerspective $(matRotz $((frame))) $(matRotx $((frame))) $(matRoty $((frame))) $(matTrans 0 0 0) )
   matTransformStatic
   doNormals
@@ -1006,8 +1008,11 @@ function renderObjects {
 ##
 ## Build Models
 ##
+ret=0
+clockMid=0
 clockIdx=0
 clockRadius=10
+matAppend $matIdent;  clockMid=$ret
 function buildClock {
   local r=$1 s=$((- $1)) face=$2 tr idx nidx ret
   local b=$((r+0))
@@ -1026,31 +1031,32 @@ function buildClock {
   # The first three vectors will be used to calculate the culling normal for the entire clock.
   vectorsAppend  $(matMultTransNVec $tr  0 0 0 1   $r 0 0 1   0 $s 0 1)
   vidx=$ret # The index to these vectors is used a bunch of times
-  planesAppend $vidx 0 # Register the vectors index of these three points
+  planesAppend $vidx $clockMid # Register the vectors index of these three points
   pidx=$ret # Keep track of this plane's index as it's used by all the objects on this plane
 
   vectorsAppend  $(matMultTransNVec $tr  0 $s 0 1   $r 0 0 1   $r $r 0 1)
-  objectsAdd HOUR l 6 _  0 $pidx $vidx $((ret))
-  objectsAdd MIN  l 2 _  0 $pidx $vidx $((ret+1))
-  objectsAdd SEC  l 5 _  0 $pidx $vidx $((ret+2))
+  objectsAdd HOUR l 6 _  $clockMid $pidx $vidx $((ret))
+  objectsAdd MIN  l 2 _  $clockMid $pidx $vidx $((ret+1))
+  objectsAdd SEC  l 5 _  $clockMid $pidx $vidx $((ret+2))
 
   vectorsAppend  $(matMultTransNVec $tr  $s $s 0 1  $r $s 0 1   $r $r 0 1  $s $r 0 1 )
-  objectsAdd BOX  y $((face+1)) . 0 $pidx $((ret)) $((ret+1)) $((ret+2)) $((ret+3))
+  objectsAdd BOX  y $((face+1)) . $clockMid $pidx $((ret)) $((ret+1)) $((ret+2)) $((ret+3))
 
   for s in 10 20 30 40 50 60 70 80 90 100 110; do
     vectorsAppend $(matMultTransNVec $(matMultNTrans $tr $(matRotz $s))  0 $((r/2)) 0 1   0 $r 0 1)
-    objectsAdd TICK l 8 . 0 $pidx $ret $((ret + 1))
+    objectsAdd TICK l 7 . $clockMid $pidx $ret $((ret + 1))
   done
 }
 
 function updateClock {
-  timeProbe # $((frame*483))
-  vectors[(clockIdx+3)*4+0]=$((COSTABLE[(hour+90)%120]*clockRadius/240))
-  vectors[(clockIdx+3)*4+1]=$((SINTABLE[(hour+90)%120]*clockRadius/240))
-  vectors[(clockIdx+4)*4+0]=$((COSTABLE[(min+90)%120]*clockRadius/120))
-  vectors[(clockIdx+4)*4+1]=$((SINTABLE[(min+90)%120]*clockRadius/120))
-  vectors[(clockIdx+5)*4+0]=$((COSTABLE[(sec+90)%120]*clockRadius/120))
-  vectors[(clockIdx+5)*4+1]=$((SINTABLE[(sec+90)%120]*clockRadius/120))
+  #timeProbe # $((frame*483))
+  #vectors[(clockIdx+3)*4+0]=$((COSTABLE[(hour+90)%120]*clockRadius/240))
+  #vectors[(clockIdx+3)*4+1]=$((SINTABLE[(hour+90)%120]*clockRadius/240))
+  #vectors[(clockIdx+4)*4+0]=$((COSTABLE[(min+90)%120]*clockRadius/120))
+  #vectors[(clockIdx+4)*4+1]=$((SINTABLE[(min+90)%120]*clockRadius/120))
+  #vectors[(clockIdx+5)*4+0]=$((COSTABLE[(sec+90)%120]*clockRadius/120))
+  #vectors[(clockIdx+5)*4+1]=$((SINTABLE[(sec+90)%120]*clockRadius/120))
+  matSet $clockMid $(matRoty -$frame)
 }
 
 
@@ -1116,10 +1122,10 @@ function buildTexturedCubes {
 mys=0
 mymat=0
 function updateBoxes {
-  matSet $((mymat+0)) $(matMultNTrans $(matTrans -$mys 10   0) $(matRotz $((frame*3))))
-  matSet $((mymat+1)) $(matMultNTrans $(matTrans 0   10  $mys) $(matRotz $((frame*3))))
-  matSet $((mymat+2)) $(matMultNTrans $(matTrans 0   10 -$mys) $(matRotz $((frame*3))))
-  matSet $((mymat+3)) $(matMultNTrans $(matTrans $mys  10   0) $(matRotz $((frame*3))))
+  matSet $((mymat+0)) $(matMultNTrans $(matRoty $frame) $(matTrans -$mys 10   0) $(matRotz $((frame*3))))
+  matSet $((mymat+1)) $(matMultNTrans $(matRoty $frame) $(matTrans 0   10  $mys) $(matRotz $((frame*3))))
+  matSet $((mymat+2)) $(matMultNTrans $(matRoty $frame) $(matTrans 0   10 -$mys) $(matRotz $((frame*3))))
+  matSet $((mymat+3)) $(matMultNTrans $(matRoty $frame) $(matTrans $mys  10   0) $(matRotz $((frame*3))))
 }
 
 
@@ -1196,14 +1202,14 @@ function main {
   #buildUrchin 50 90
   #buildSimpleBox 70
   buildTexturedCubes 10 80 5
-  #buildFloor 40 20 4
+  buildFloor 80 40 8
   if :; then
-    buildClock 30 0
-    buildClock 30 1
-    buildClock 30 2
-    buildClock 30 3
-    buildClock 30 4
-    buildClock 30 5
+    buildClock 30 0 4
+    buildClock 30 1 4
+    buildClock 30 2 4
+    buildClock 30 3 4
+    buildClock 30 4 4
+    buildClock 30 5 4
   fi
   #vectorsDump
   #objectsDump
@@ -1223,7 +1229,7 @@ function main {
       sigwinch=false
     fi
     renderObjects
-    #updateClock
+    updateClock
     updateBoxes
   done
   wait
