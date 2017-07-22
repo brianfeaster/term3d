@@ -461,7 +461,6 @@ function objectsDump {
       (*) printf " %s" ${objects[*]:oi:count} ;;      # Dump indices representing each point
       (l) printf " %2d-%-2d" ${objects[*]:oi:count} ;; # Dump index pairs representing a line
     esac
-    echo "."
     oi=$((oi + count))
     c=$((c+1))
   done
@@ -804,8 +803,7 @@ function plotLines () { # &oi &cl &ch &last &mat
 }
 
 function plotPoly () { # &cl &ch &oi &last
-  local idx vi vi vx vy vz vn ox oy oz on lx ly lz x y z
-  idx=$oi
+  local idx=$oi vi vx vy vz vn ox oy oz on lx ly lz x y z
   # Keep track of first point
   vi=${objects[idx]}
   vx=${vectors[$vi*4]}
@@ -857,7 +855,7 @@ function plotPoints () { # &oi &cl &ch &last &mi
 ##
 powerButton=true
 jiffy=$SECONDS 
-frame=0
+frame=1
 framestop=60
 sigwinch=false
 
@@ -875,9 +873,6 @@ function resetEmptyBuffers {
 }
 
 function renderObjectSet { # &oil
- trap : SIGINT
- trap : SIGQUIT
- trap : SIGWINCH
  local oi type cl ch count last mi
  for oi in ${oil[*]}; do
     type=${objects[oi+1]}
@@ -887,11 +882,11 @@ function renderObjectSet { # &oil
     count=${objects[oi+6]}
     oi=$((oi+7))
     last=$((count + oi)) # compute index of last element in this object
-      case $type in # &cl &ch &oi &last &mi
-       (p) plotPoints ;;
-       (l) plotLines ;;
-       (y) plotPoly ;;
-      esac
+    case $type in # &cl &ch &oi &last &mi
+     (p) plotPoints ;;
+     (l) plotLines ;;
+     (y) plotPoly ;;
+    esac
  done
  echo "q"
 }
@@ -916,7 +911,8 @@ function scheduleObjectRenderers { # &frame &thread
         renderObjectSet > "${frame}_$thread" & # &oil
         oil=()
         oilc=0
-      fi fi
+      fi
+    fi
     oi=$last # Skip object index to next object in array
   done
 
@@ -948,20 +944,20 @@ function fillDepthBuffer { # &frame &thread &screenBuffer &depthBuffer
     done # spin until the file is created
     while :; do
       read x y z k c
-      if [ -z "$x" ]; then
-        #1<&2 echo "ERROR: nothing read from $filename"
+      [ "$x" == q ] && break
+      if [ -z "$c" ]; then
+        #1<&2 echo "ERROR: only read from $filename ':$x :$y :$z :$k :$c'"
         #sleep 1
         spin=$((spin+1))
         continue
       fi
-      [ "$x" == q ] && break
-        idx=$((x+y*TWIDTH))
-        if [ $z -lt ${depthBuffer[idx]} ]; then
-          screenBuffer[idx]="[${COLORS[k]}m$c"
-          depthBuffer[idx]=$z
-        fi
+      idx=$((x+y*TWIDTH))
+      if [ $z -lt ${depthBuffer[idx]} ]; then
+        screenBuffer[idx]="[${COLORS[k]}m$c"
+        depthBuffer[idx]=$z
+      fi
     done <"$filename"
-    rm $filename # Remove the files the rendering processes created
+    rm $filename || { echo "cant delete file $filename"; exit -1; } # Remove the files the rendering processes created
     i=$((i+1))
   done
 }
@@ -974,17 +970,20 @@ function dumpStats {
   fi
 }
 
-matrixPerspective=$(matMultNTrans $(matPerspective 60) $(matTrans 0 0 100) $(matScale 1 1 1))
+matrixPerspective=$(matMultNTrans $(matPerspective 50) $(matTrans 0 0 100) $(matScale 1 1 1))
 #matrixPerspective="$matIdent"
 
-matSetGlobal 0  $(matMultNTrans $matrixPerspective $(matRotx -6) )
+#matSetGlobal 0  $(matMultNTrans $matrixPerspective $(matRotz 0) )
 
 function renderObjects {
+  #trap : SIGPIPE SIGINT SIGQUIT SIGWINCH SIGTERM
   local thread=0 screenBuffer depthBuffer spin=0
   #[ $sec == 0 ] || [ "$1" == -resetCritters ] && resetCritters # Animal glyphs reset every minute or screen resize. 
   ## Global xform matrix
-  #matSetGlobal 0  $(matMultNTrans $matrixPerspective $(matRotx -6) $(matRoty -$frame) )
-  #matSetGlobal 0 $(matMultNTrans $matrixPerspective $(matRotz $((frame))) $(matRotx $((frame))) $(matRoty $((frame))) $(matTrans 0 0 0) )
+  #matSetGlobal 0  $(matMultNTrans $matrixPerspective $(matRotx -6) $(matRoty $frame) )
+  matSetGlobal 0 $(matMultNTrans $matrixPerspective $(matRotz $frame) $(matRotx $frame) $(matRoty $frame) )
+  #matSetGlobal 0 $(matMultNTrans $matrixPerspective $(matTrans 0 0 $((  (frame % 100 - 50) * (frame % 100 - 15) - 100 )) ))
+  {
   matTransformStatic
   doNormals
   scheduleObjectRenderers # &frame &thread -- Creates files with "x y z k c" per line
@@ -992,17 +991,17 @@ function renderObjects {
     eval screenBuffer=($screenBufferEmpty)
     depthBuffer=($depthBufferEmpty)
     if :; then
-      trap : SIGINT
-      trap : SIGQUIT
-      trap : SIGWINCH
       fillDepthBuffer # &frame &thread &screenBuffer &depthBuffer &spin
       IFS=''
+      while [ ! -e frame$((frame-1)) ]; do : ; done
       printf "\e[H${screenBuffer[*]}$(dumpStats)" # &thread
+      touch frame$frame
+      rm frame$((frame-1))
       unset IFS
-    fi &
+    fi
   fi
-  frame=$((frame+1))
-}
+  } &
+} #renderObjects 
 
 
 ##
@@ -1040,7 +1039,7 @@ function buildClock {
   objectsAdd SEC  l 5 _  $clockMid $pidx $vidx $((ret+2))
 
   vectorsAppend  $(matMultTransNVec $tr  $s $s 0 1  $r $s 0 1   $r $r 0 1  $s $r 0 1 )
-  objectsAdd BOX  y $((face+1)) . $clockMid $pidx $((ret)) $((ret+1)) $((ret+2)) $((ret+3))
+  objectsAdd BOX  y 15 @ $clockMid $pidx $((ret)) $((ret+1)) $((ret+2)) $((ret+3))
 
   for s in 10 20 30 40 50 60 70 80 90 100 110; do
     vectorsAppend $(matMultTransNVec $(matMultNTrans $tr $(matRotz $s))  0 $((r/2)) 0 1   0 $r 0 1)
@@ -1119,13 +1118,13 @@ function buildTexturedCubes {
   mys=$s
 } # buildTexturedCubes
 
-mys=0
-mymat=0
+mys=20
+mymat=2
 function updateBoxes {
-  matSet $((mymat+0)) $(matMultNTrans $(matRoty $frame) $(matTrans -$mys 10   0) $(matRotz $((frame*3))))
-  matSet $((mymat+1)) $(matMultNTrans $(matRoty $frame) $(matTrans 0   10  $mys) $(matRotz $((frame*3))))
-  matSet $((mymat+2)) $(matMultNTrans $(matRoty $frame) $(matTrans 0   10 -$mys) $(matRotz $((frame*3))))
-  matSet $((mymat+3)) $(matMultNTrans $(matRoty $frame) $(matTrans $mys  10   0) $(matRotz $((frame*3))))
+  matSet $((mymat+0)) $(matMultNTrans $(matTrans -25  25  0) $(matRoty $((frame*4))) $(matRotx $((frame*1))))
+  matSet $((mymat+1)) $(matMultNTrans $(matTrans 25  -25  0) $(matRoty $((frame*3))) $(matRotx $((frame*2))))
+  matSet $((mymat+2)) $(matMultNTrans $(matTrans -25 -25  0) $(matRoty $((frame*2))) $(matRotx $((frame*3))))
+  matSet $((mymat+3)) $(matMultNTrans $(matTrans 25  25   0) $(matRoty $((frame*1))) $(matRotx $((frame*4))))
 }
 
 
@@ -1137,7 +1136,6 @@ function buildFloor {
 
   function buildTexturedFace {
     local  x  z=$((-r/d))
-    #echo 0 0 0 1  0 0 0 1  0 0 0 1
     while [ $z -le $((r/d)) ]; do
       x=$((-r/d))
       while [ $x -le $((r/d)) ]; do
@@ -1148,22 +1146,44 @@ function buildFloor {
     done
   }
   vectorsAppend $(matMultTransNVec $(matTrans 0 $s 0) $(buildTexturedFace))
-  objectsAdd FLOOR p 8 . 0 1 $(range $((ret+3)) $((ret+$(( $(vectorsLength) - ret - 1)))))
+  objectsAdd FLOOR p 8 @ 0 1 $(range $((ret)) $((ret + $(vectorsLength) - ret - 1)))
+}
+
+function buildLines {
+  local ret
+  local r=$1 # radius of the cubes
+  local s=$2 # floor height
+  local d=$3 # density of the cubes
+
+  function buildTexturedFace {
+    local  x  z=$((-r/d))
+    while [ $z -le $((r/d)) ]; do
+      x=$((-r/d))
+      while [ $x -le $((r/d)) ]; do
+        vectorsAppend $(matMultTransNVec $(matTrans 0 $s 0) $((d*x)) 0 $((d*z)) 1    $((d*x)) -30 $((d*z)) 1 )
+        objectsAdd FLOOR l $((RANDOM%16)) @ 0 1 $(range $ret $((ret+1)) )
+        x=$((x+1))
+      done
+      z=$((z+1))
+    done
+  }
+  buildTexturedFace 
 }
 
 
 
 function buildSimpleBox {
   # (1) Create the points
-  local ret r=$1 idx
+  local ret r=$1 idx mymat
+  matAppend $(matTrans 0 0 0);  mymat=$ret
   vectorsAppend -$r $r $r 1  $r $r $r 1  $r -$r $r 1  -$r -$r $r 1   -$r $r -$r 1  $r $r -$r 1  $r -$r -$r 1  -$r -$r -$r 1
-  objectsAdd POINTS p 3 x 0 1  $(eval echo {$ret..$((ret+7))})
-  objectsAdd BOX   y 6 + 0 1  $(range $ret $((ret+3)))  # back
-  objectsAdd BOX   y 6 + 0 1  $(range $((ret+4)) $((ret+7)))  # front
-  objectsAdd EDGES l 6 + 0 1  $((ret+1)) $((ret+5))  $((ret+2)) $((ret+6))  $((ret+3)) $((ret+7))  $((ret+4)) $ret
-  r=$((r/2))
-  vectorsAppend -$r $r $r 1  $r $r $r 1  $r -$r $r 1  -$r -$r $r 1   -$r $r -$r 1  $r $r -$r 1  $r -$r -$r 1  -$r -$r -$r 1
-  objectsAdd POINTS y 2 y 1  $(range $((ret+0)) $((ret+7)))
+  #objectsAdd POINTS p 3 x $mymat 1  $(range $ret $((ret+7)))
+  objectsAdd BOX   y 6 + $mymat 1  $(range $ret $((ret+3)))  # back
+  objectsAdd BOX   y 6 + $mymat 1  $(range $((ret+4)) $((ret+7)))  # front
+  objectsAdd EDGES l 6 + $mymat 1  $((ret+1)) $((ret+5))  $((ret+2)) $((ret+6))  $((ret+3)) $((ret+7))  $((ret+4)) $ret
+  #r=$((r/2))
+  #vectorsAppend -$r $r $r 1  $r $r $r 1  $r -$r $r 1  -$r -$r $r 1   -$r $r -$r 1  $r $r -$r 1  $r -$r -$r 1  -$r -$r -$r 1
+  #objectsAdd POINTS y 2 y $mymat 1  $(range $((ret+0)) $((ret+7)))
 }
 
 function buildUrchin {
@@ -1182,40 +1202,43 @@ function buildUrchin {
 ##
 ## Exception handlers
 ##
-function handler_sigint { powerButton=false; }
+function handler_sigint { echo sigingbang; powerButton=false; }
 function handler_sigwinch { sigwinch=true; }
-
 
 ##
 ## USAGE:  basciiclock [a|b] {frame count}
 ##
 function main {
   framestop=${1:--1}
-  trap handler_sigint   SIGINT
-  trap handler_sigint   SIGQUIT
-  trap handler_sigwinch SIGWINCH
+  trap handler_sigint   PIPE INT QUIT TERM
+  trap handler_sigwinch WINCH
   printf "\e[?25l\e[0m" # Disable cursor
   terminalProbe
   resetEmptyBuffers
   resetCritters
 
   #buildUrchin 50 90
-  #buildSimpleBox 70
-  buildTexturedCubes 10 80 5
-  buildFloor 80 40 8
+  #buildSimpleBox 15
+  #buildSimpleBox 25
+  #buildSimpleBox 35
+  #buildSimpleBox 45
+  #buildTexturedCubes 10 80 5
+  #buildFloor 80 0  10
+  #buildLines 80 10 20
   if :; then
-    buildClock 30 0 4
-    buildClock 30 1 4
-    buildClock 30 2 4
-    buildClock 30 3 4
-    buildClock 30 4 4
-    buildClock 30 5 4
+    buildClock 50 0
+    buildClock 50 1
+    buildClock 50 2
+    buildClock 50 3
+    buildClock 50 4
+    buildClock 50 5
   fi
   #vectorsDump
   #objectsDump
   #planesDump
   #matDump
   #read -n 1 -p 'Abort, Retry, Fail?' k
+  touch frame0
   while [ ! -e stop ] && $powerButton && [ $frame -ne $framestop ] ; do
     if [ $jiffy != $SECONDS ]; then
       timeProbe # $((frame*483))
@@ -1229,11 +1252,13 @@ function main {
       sigwinch=false
     fi
     renderObjects
-    updateClock
-    updateBoxes
+    frame=$((frame+1))
+    #updateClock
+    #updateBoxes
   done
-  wait
+  touch frame$frame
+  sleep 1
   printf "\e[?25h\nDone.\n" # Enable cursor
 }
 
-time main -10 # Run indefinitely or until ^C
+time main -50 # Run indefinitely or until ^C
