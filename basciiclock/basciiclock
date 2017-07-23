@@ -892,7 +892,7 @@ function resetEmptyBuffers {
 }
 
 function renderObjectSet { # &oil
-  trap : PIPE INT QUIT TERM WINCH HUP ILL TRAP ABRT BUS FPE KILL USR1 SEGV USR2 ALRM STKFLT CHLD CONT STOP TSTP TTIN TTOU URG XCPU XFSZ VTALRM PROF IO PWR SYS
+  trap : PIPE INT QUIT TERM WINCH HUP ILL TRAP ABRT BUS FPE KILL USR1 SEGV USR2 ALRM CHLD CONT STOP TSTP TTIN TTOU URG XCPU XFSZ VTALRM PROF IO SYS
   local oi type cl ch count last mi
   for oi in ${oil[*]}; do
     type=${objects[oi+1]}
@@ -1003,9 +1003,9 @@ function renderObjects {
   ## Global xform matrix
   #matSetGlobal 0  $(matMultNTrans $matrixPerspective $(matRotx -6) $(matRoty $frame) )
   matSetGlobal 0 $(
-    trap : PIPE INT QUIT TERM WINCH HUP ILL TRAP ABRT BUS FPE KILL USR1 SEGV USR2 ALRM STKFLT CHLD CONT STOP TSTP TTIN TTOU URG XCPU XFSZ VTALRM PROF IO PWR SYS
+    trap : PIPE INT QUIT TERM WINCH HUP ILL TRAP ABRT BUS FPE KILL USR1 SEGV USR2 ALRM CHLD CONT STOP TSTP TTIN TTOU URG XCPU XFSZ VTALRM PROF IO SYS
     matMultNTrans $matrixPerspective $(
-        trap : PIPE INT QUIT TERM WINCH HUP ILL TRAP ABRT BUS FPE KILL USR1 SEGV USR2 ALRM STKFLT CHLD CONT STOP TSTP TTIN TTOU URG XCPU XFSZ VTALRM PROF IO PWR SYS
+        trap : PIPE INT QUIT TERM WINCH HUP ILL TRAP ABRT BUS FPE KILL USR1 SEGV USR2 ALRM CHLD CONT STOP TSTP TTIN TTOU URG XCPU XFSZ VTALRM PROF IO SYS
         matRotz $frame; matRotx $frame; matRoty $frame
       )
   )
@@ -1014,7 +1014,7 @@ function renderObjects {
   doNormals
   scheduleObjectRenderers # &frame &thread -- Creates files with "x y z k c" per line
   { # Fork
-    trap : PIPE INT QUIT TERM WINCH HUP ILL TRAP ABRT BUS FPE KILL USR1 SEGV USR2 ALRM STKFLT CHLD CONT STOP TSTP TTIN TTOU URG XCPU XFSZ VTALRM PROF IO PWR SYS
+    trap : PIPE INT QUIT TERM WINCH HUP ILL TRAP ABRT BUS FPE KILL USR1 SEGV USR2 ALRM CHLD CONT STOP TSTP TTIN TTOU URG XCPU XFSZ VTALRM PROF IO SYS
     if [ $thread != 0 ]; then # if any rendering threads exist...
       eval screenBuffer=($screenBufferEmpty)
       depthBuffer=($depthBufferEmpty)
@@ -1240,7 +1240,7 @@ function handler_sigwinch { sigwinch=true; }
 ##
 function main {
   framestop=${1:--1}
-  trap : HUP ILL TRAP ABRT BUS FPE KILL USR1 SEGV USR2 ALRM STKFLT CHLD CONT STOP TSTP TTIN TTOU URG XCPU XFSZ VTALRM PROF IO PWR SYS
+  trap : HUP ILL TRAP ABRT BUS FPE KILL USR1 SEGV USR2 ALRM CHLD CONT STOP TSTP TTIN TTOU URG XCPU XFSZ VTALRM PROF IO SYS
   trap handler_sigint   PIPE INT QUIT TERM
   trap handler_sigwinch WINCH
   printf "\e[?25l\e[0m" # Disable cursor
