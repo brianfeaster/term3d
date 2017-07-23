@@ -2,6 +2,7 @@
 
 #### Poor man's console 3d lib
 ## _Concepts_
+## _Useful_
 ## _Testing_
 ## _Planes_
 ## _Matrices_
@@ -65,6 +66,24 @@
 ##  post transformed list.
 ##
 ####
+
+
+
+##
+## _Useful_
+##
+function waitThenDelete { # (filename [origin])
+  local fn=$1
+
+  # Spin waiting for file to appear
+  while [ ! -e $fn ]; do :; done
+
+  # Delete until successful
+  while ! rm $fn; do
+    echo "Unable to delete $fn${2:+ in $2}"
+  done
+}
+
 
 
 #### _Testing_
@@ -855,7 +874,7 @@ function plotPoints () { # &oi &cl &ch &last &mi
 ##
 powerButton=true
 jiffy=$SECONDS 
-frame=1
+frame=0
 framestop=60
 sigwinch=false
 
@@ -873,22 +892,23 @@ function resetEmptyBuffers {
 }
 
 function renderObjectSet { # &oil
- local oi type cl ch count last mi
- for oi in ${oil[*]}; do
+  trap : PIPE INT QUIT TERM WINCH HUP ILL TRAP ABRT BUS FPE KILL USR1 SEGV USR2 ALRM STKFLT CHLD CONT STOP TSTP TTIN TTOU URG XCPU XFSZ VTALRM PROF IO PWR SYS
+  local oi type cl ch count last mi
+  for oi in ${oil[*]}; do
     type=${objects[oi+1]}
     cl=${objects[oi+2]}
     ch=${objects[oi+3]}
     mi=$((16*${objects[oi+4]}))
     count=${objects[oi+6]}
     oi=$((oi+7))
-    last=$((count + oi)) # compute index of last element in this object
+    last=$((oi + count)) # compute index of last element in this object
     case $type in # &cl &ch &oi &last &mi
-     (p) plotPoints ;;
-     (l) plotLines ;;
-     (y) plotPoly ;;
+      (p) plotPoints ;;
+      (l) plotLines ;;
+      (y) plotPoly ;;
     esac
- done
- echo "q"
+  done >"${frame}_$thread"
+  echo "q" >>"${frame}_$thread"
 }
 
 function scheduleObjectRenderers { # &frame &thread
@@ -906,9 +926,9 @@ function scheduleObjectRenderers { # &frame &thread
     if [ ${facing[plane]} -eq 0 ]; then
       oil[oilc]=$((oi-7))
       oilc=$((oilc+1))
-      if [ 8 -lt $oilc ]; then # more things happen per thread the higher this number is
+      if [ 6 -lt $oilc ]; then # more things happen per thread the higher this number is
         thread=$((thread+1))
-        renderObjectSet > "${frame}_$thread" & # &oil
+        renderObjectSet & # &oil
         oil=()
         oilc=0
       fi
@@ -918,7 +938,7 @@ function scheduleObjectRenderers { # &frame &thread
 
   if [ 0 -lt $oilc ]; then # Run any threads in the partially full list
     thread=$((thread+1))
-    renderObjectSet > "${frame}_$thread" & # &oil
+    renderObjectSet & # &oil
   fi
 }
 
@@ -957,12 +977,14 @@ function fillDepthBuffer { # &frame &thread &screenBuffer &depthBuffer
         depthBuffer[idx]=$z
       fi
     done <"$filename"
-    rm $filename || { echo "cant delete file $filename"; exit -1; } # Remove the files the rendering processes created
+    while ! rm $filename; do # Remove the files the rendering processes created
+      echo "cant delete file $filename in fillDepthBuffer"
+    done
     i=$((i+1))
   done
 }
 
-function dumpStats {
+function dumpStats { #&thread &spin
   # parent: facing thread
   if [ $SECONDS -ne 0 ]; then
     frameRate=$((100*frame/(SECONDS)))
@@ -976,30 +998,38 @@ matrixPerspective=$(matMultNTrans $(matPerspective 50) $(matTrans 0 0 100) $(mat
 #matSetGlobal 0  $(matMultNTrans $matrixPerspective $(matRotz 0) )
 
 function renderObjects {
-  #trap : SIGPIPE SIGINT SIGQUIT SIGWINCH SIGTERM
   local thread=0 screenBuffer depthBuffer spin=0
   #[ $sec == 0 ] || [ "$1" == -resetCritters ] && resetCritters # Animal glyphs reset every minute or screen resize. 
   ## Global xform matrix
   #matSetGlobal 0  $(matMultNTrans $matrixPerspective $(matRotx -6) $(matRoty $frame) )
-  matSetGlobal 0 $(matMultNTrans $matrixPerspective $(matRotz $frame) $(matRotx $frame) $(matRoty $frame) )
+  matSetGlobal 0 $(
+    trap : PIPE INT QUIT TERM WINCH HUP ILL TRAP ABRT BUS FPE KILL USR1 SEGV USR2 ALRM STKFLT CHLD CONT STOP TSTP TTIN TTOU URG XCPU XFSZ VTALRM PROF IO PWR SYS
+    matMultNTrans $matrixPerspective $(
+        trap : PIPE INT QUIT TERM WINCH HUP ILL TRAP ABRT BUS FPE KILL USR1 SEGV USR2 ALRM STKFLT CHLD CONT STOP TSTP TTIN TTOU URG XCPU XFSZ VTALRM PROF IO PWR SYS
+        matRotz $frame; matRotx $frame; matRoty $frame
+      )
+  )
   #matSetGlobal 0 $(matMultNTrans $matrixPerspective $(matTrans 0 0 $((  (frame % 100 - 50) * (frame % 100 - 15) - 100 )) ))
-  {
   matTransformStatic
   doNormals
   scheduleObjectRenderers # &frame &thread -- Creates files with "x y z k c" per line
-  if [ $thread != 0 ]; then
-    eval screenBuffer=($screenBufferEmpty)
-    depthBuffer=($depthBufferEmpty)
-    if :; then
+  { # Fork
+    trap : PIPE INT QUIT TERM WINCH HUP ILL TRAP ABRT BUS FPE KILL USR1 SEGV USR2 ALRM STKFLT CHLD CONT STOP TSTP TTIN TTOU URG XCPU XFSZ VTALRM PROF IO PWR SYS
+    if [ $thread != 0 ]; then # if any rendering threads exist...
+      eval screenBuffer=($screenBufferEmpty)
+      depthBuffer=($depthBufferEmpty)
       fillDepthBuffer # &frame &thread &screenBuffer &depthBuffer &spin
-      IFS=''
+      # Wait for sentinel to appear from previous frame's rendering thread
       while [ ! -e frame$((frame-1)) ]; do : ; done
-      printf "\e[H${screenBuffer[*]}$(dumpStats)" # &thread
-      touch frame$frame
-      rm frame$((frame-1))
+      IFS=''
+        printf "\e[0H${screenBuffer[*]}$(dumpStats)" # &thread &spin
+        touch frame$frame # Tell next thread it can render to the screen now
       unset IFS
+      waitThenDelete frame$((frame-1)) "renderObjects"
+    else
+      touch frame$frame # Tell next thread it can render to the screen now
+      waitThenDelete frame$((frame-1)) "renderObjects"
     fi
-  fi
   } &
 } #renderObjects 
 
@@ -1202,7 +1232,7 @@ function buildUrchin {
 ##
 ## Exception handlers
 ##
-function handler_sigint { echo sigingbang; powerButton=false; }
+function handler_sigint { powerButton=false; }
 function handler_sigwinch { sigwinch=true; }
 
 ##
@@ -1210,6 +1240,7 @@ function handler_sigwinch { sigwinch=true; }
 ##
 function main {
   framestop=${1:--1}
+  trap : HUP ILL TRAP ABRT BUS FPE KILL USR1 SEGV USR2 ALRM STKFLT CHLD CONT STOP TSTP TTIN TTOU URG XCPU XFSZ VTALRM PROF IO PWR SYS
   trap handler_sigint   PIPE INT QUIT TERM
   trap handler_sigwinch WINCH
   printf "\e[?25l\e[0m" # Disable cursor
@@ -1238,7 +1269,7 @@ function main {
   #planesDump
   #matDump
   #read -n 1 -p 'Abort, Retry, Fail?' k
-  touch frame0
+  touch frame$frame # Sentinel so the first frame will render
   while [ ! -e stop ] && $powerButton && [ $frame -ne $framestop ] ; do
     if [ $jiffy != $SECONDS ]; then
       timeProbe # $((frame*483))
@@ -1251,13 +1282,12 @@ function main {
       resetEmptyBuffers
       sigwinch=false
     fi
-    renderObjects
     frame=$((frame+1))
+    renderObjects
     #updateClock
     #updateBoxes
   done
-  touch frame$frame
-  sleep 1
+  waitThenDelete frame$frame "main"
   printf "\e[?25h\nDone.\n" # Enable cursor
 }
 
