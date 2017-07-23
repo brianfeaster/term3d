@@ -174,20 +174,21 @@ function terminalIsInScreen { # ARGS: x y
 
 function G2 { printf "\e[$(($1+THEIGHT2));$(($2+TWIDTH2))H$3"; }
 
-function terminalDrawLine {
-  local x y m n d dx dy w ws nx ny yyxx e i
+function terminalDrawLine { # ( z y x  z' y' x'  cl  ch)
+  local x y z  m n o  dx dy dz  w ws nx ny yyxx e i
   local z=$5
-  local kl=$6
-  local ch=$7
+  local kl=$7
+  local ch=$8
   # Make sure line is drawn from left -x to right +x in the temrinal.
-  if [ $2 -le $4 ]; then
-    x=$2; y=$1; m=$4; n=$3
+  if [ $3 -le $6 ]; then
+    x=$3; y=$2; z=$1; m=$6; n=$5; o=$4
   else
-    x=$4; y=$3; m=$2; n=$1
+    x=$6; y=$5; z=$4; m=$3; n=$2; o=$1
   fi
   # (x,y) to (m,n) will always go left to right
   dx=$((m-x))
-  if [ $1 -lt $3 ]; then dy=$(($3-$1)); else dy=$(($1-$3)); fi
+  if [ $2 -lt $5 ]; then dy=$(($5-$2)); else dy=$(($2-$5)); fi
+  dz=$((o-z))
 
   # Always walk or walk-step
 
@@ -221,19 +222,20 @@ function terminalDrawLine {
   yyxx=$((yy - nx - nx))
   e=$((yy - nx))
   i=$nx
+  dz=$((z-o))
 
   while [ 0 -lt $i ]; do
     if [ 0 -le $e ]; then # above mid-point
       if [ $state == 1 ]; then
         if terminalIsInScreen $x $y; then # done if out of screen
-          echo $((x+TWIDTH2)) $((y+THEIGHT2)) $z $kl $ch
+          echo $((x+TWIDTH2)) $((y+THEIGHT2)) $((z-dz*(nx-i)/nx)) $kl $ch
         else
            return 0
         fi
       else # state == 0
         if terminalIsInScreen $x $y; then
           state=1
-          echo $((x+TWIDTH2)) $((y+THEIGHT2)) $z $kl $ch
+          echo $((x+TWIDTH2)) $((y+THEIGHT2)) $((z-dz*(nx-i)/nx)) $kl $ch
         fi
       fi
       x=$((x+xwsi)); y=$((y+ywsi))
@@ -241,14 +243,14 @@ function terminalDrawLine {
     else # below mid-point
       if [ $state == 1 ]; then
         if terminalIsInScreen $x $y; then  # done if out of screen
-          echo $((x+TWIDTH2)) $((y+THEIGHT2)) $z $kl $ch
+          echo $((x+TWIDTH2)) $((y+THEIGHT2)) $((z-dz*(nx-i)/nx)) $kl $ch
         else
           return 0
         fi
       else # state == 0
         if terminalIsInScreen $x $y; then
           state=1
-          echo $((x+TWIDTH2)) $((y+THEIGHT2)) $z $kl $ch
+          echo $((x+TWIDTH2)) $((y+THEIGHT2)) $((z-dz*(nx-i)/nx)) $kl $ch
         fi
       fi
       x=$((x+xwi)); y=$((y+ywi))
@@ -260,7 +262,7 @@ function terminalDrawLine {
 
 
 function terminalDrawLineDirect {
-  local x y m n d dx dy w ws nx ny yyxx e i
+  local x y m n dx dy w ws nx ny yyxx e i
   # Make sure line is drawn from left -x to right +x in the temrinal.
   if [ $2 -le $4 ]; then
     x=$2; y=$1; m=$4; n=$3
@@ -493,7 +495,7 @@ function objectsDump {
 
 matIdent="1 0 0 0  0 1 0 0   0 0 1 0  0 0 0 1"
 function matRotz () { echo ${COSTABLE[(120+$1)%120]} ${SINTABLEI[(120+$1)%120]} 0 0 ${SINTABLE[(120+$1)%120]} ${COSTABLE[(120+$1)%120]} 0 0 0 0 120 0 0 0 0 120; }
-function matRoty () { echo ${COSTABLE[(120+$1)%120]} 0 ${SINTABLEI[(120+$1)%120]} 0 0 120 0 0 ${SINTABLE[(120+$1)%120]} 0 ${COSTABLE[(120+$1)%120]} 0 0 0 0 120; }
+function matRoty () { echo ${COSTABLE[($1+1201)%120]} 0 ${SINTABLEI[($1+1201)%120]} 0 0 120 0 0 ${SINTABLE[($1+120)%120]} 0 ${COSTABLE[($1+120)%120]} 0 0 0 0 120; }
 function matRotx () { echo 120 0 0 0 0 ${COSTABLE[(120+$1)%120]} ${SINTABLE[(120+$1)%120]} 0 0   ${SINTABLEI[(120+$1)%120]} ${COSTABLE[(120+$1)%120]} 0 0 0 0 120; }
 function matScale () { echo $1 0 0 0  0 $2 0 0  0 0 $3 0  0 0 0 1; }
 function matTrans () { echo 1 0 0 $1  0 1 0 $2  0 0 1 $3  0 0 0 1; }
@@ -816,7 +818,7 @@ function plotLines () { # &oi &cl &ch &last &mat
     vz=${vectors[$vi*4+2]}
     vn=${vectors[$vi*4+3]}
     matMultTransVecNormalized # &mat &vx &vy &vz &vn => &x &y &z &n
-    terminalDrawLine  $b $a $y $x $c $cl $ch
+    terminalDrawLine $c $b $a $z $y $x $cl $ch
     idx=$((idx+2))
   done
 }
@@ -844,13 +846,13 @@ function plotPoly () { # &cl &ch &oi &last
     vz=${vectors[$vi*4+2]}
     vn=${vectors[$vi*4+3]}
     matMultTransVecNormalized # &mat &vx &vy &vz &vn => &x &y &z &n
-    terminalDrawLine  $ly $lx $y $x $lz $cl $ch
+    terminalDrawLine  $lz $ly $lx $z $y $x $cl $ch
     lx=$x
     ly=$y
     lz=$z
     idx=$((idx+1))
   done
-  terminalDrawLine  $y $x $oy $ox $z $cl $ch
+  terminalDrawLine  $z $y $x $oz $oy $ox $cl $ch
 }
 
 function plotPoints () { # &oi &cl &ch &last &mi
@@ -992,24 +994,31 @@ function dumpStats { #&thread &spin
   fi
 }
 
-matrixPerspective=$(matMultNTrans $(matPerspective 50) $(matTrans 0 0 100) $(matScale 1 1 1))
+matrixPerspective=$(matMultNTrans $(matPerspective 80) $(matTrans 0 0 90) $(matScale 1 1 1))
 #matrixPerspective="$matIdent"
 
-#matSetGlobal 0  $(matMultNTrans $matrixPerspective $(matRotz 0) )
-
+ux=0
+uy=0
+uz=0
+ur=0
 function renderObjects {
   local thread=0 screenBuffer depthBuffer spin=0
   #[ $sec == 0 ] || [ "$1" == -resetCritters ] && resetCritters # Animal glyphs reset every minute or screen resize. 
+
   ## Global xform matrix
-  #matSetGlobal 0  $(matMultNTrans $matrixPerspective $(matRotx -6) $(matRoty $frame) )
+  #matSetGlobal 0 $(matMultNTrans $matrixPerspective $(matTrans 0 0 $((  (frame % 100 - 50) * (frame % 100 - 15) - 100 )) )) # Broken zoon
   matSetGlobal 0 $(
     trap : PIPE INT QUIT TERM WINCH HUP ILL TRAP ABRT BUS FPE KILL USR1 SEGV USR2 ALRM CHLD CONT STOP TSTP TTIN TTOU URG XCPU XFSZ VTALRM PROF IO SYS
     matMultNTrans $matrixPerspective $(
         trap : PIPE INT QUIT TERM WINCH HUP ILL TRAP ABRT BUS FPE KILL USR1 SEGV USR2 ALRM CHLD CONT STOP TSTP TTIN TTOU URG XCPU XFSZ VTALRM PROF IO SYS
-        matRotz $frame; matRotx $frame; matRoty $frame
-      )
+        matRotz $frame
+        matRotx $frame
+        matRoty $frame
+        #matTrans $ux $uy $uz
+        #matRoty "$ur"
+    )
   )
-  #matSetGlobal 0 $(matMultNTrans $matrixPerspective $(matTrans 0 0 $((  (frame % 100 - 50) * (frame % 100 - 15) - 100 )) ))
+
   matTransformStatic
   doNormals
   scheduleObjectRenderers # &frame &thread -- Creates files with "x y z k c" per line
@@ -1204,13 +1213,13 @@ function buildLines {
 
 function buildSimpleBox {
   # (1) Create the points
-  local ret r=$1 idx mymat
+  local ret r=$1 cl=$2 ch=$3 idx mymat
   matAppend $(matTrans 0 0 0);  mymat=$ret
   vectorsAppend -$r $r $r 1  $r $r $r 1  $r -$r $r 1  -$r -$r $r 1   -$r $r -$r 1  $r $r -$r 1  $r -$r -$r 1  -$r -$r -$r 1
   #objectsAdd POINTS p 3 x $mymat 1  $(range $ret $((ret+7)))
-  objectsAdd BOX   y 6 + $mymat 1  $(range $ret $((ret+3)))  # back
-  objectsAdd BOX   y 6 + $mymat 1  $(range $((ret+4)) $((ret+7)))  # front
-  objectsAdd EDGES l 6 + $mymat 1  $((ret+1)) $((ret+5))  $((ret+2)) $((ret+6))  $((ret+3)) $((ret+7))  $((ret+4)) $ret
+  objectsAdd BOX   y $cl $ch $mymat 1  $(range $ret $((ret+3)))  # back
+  objectsAdd BOX   y $cl $ch $mymat 1  $(range $((ret+4)) $((ret+7)))  # front
+  objectsAdd EDGES l $cl $ch $mymat 1  $((ret+1)) $((ret+5))  $((ret+2)) $((ret+6))  $((ret+3)) $((ret+7))  $((ret+4)) $ret
   #r=$((r/2))
   #vectorsAppend -$r $r $r 1  $r $r $r 1  $r -$r $r 1  -$r -$r $r 1   -$r $r -$r 1  $r $r -$r 1  $r -$r -$r 1  -$r -$r -$r 1
   #objectsAdd POINTS y 2 y $mymat 1  $(range $((ret+0)) $((ret+7)))
@@ -1249,14 +1258,14 @@ function main {
   resetCritters
 
   #buildUrchin 50 90
-  #buildSimpleBox 15
-  #buildSimpleBox 25
-  #buildSimpleBox 35
-  #buildSimpleBox 45
+  buildSimpleBox 15 1 @
+  buildSimpleBox 25 2 @
+  buildSimpleBox 35 4 @
+  buildSimpleBox 45 5 @
   #buildTexturedCubes 10 80 5
-  #buildFloor 80 0  10
-  #buildLines 80 10 20
-  if :; then
+  #buildFloor 80 0  8
+  #buildLines 60 0 30
+  if ! :; then
     buildClock 50 0
     buildClock 50 1
     buildClock 50 2
@@ -1284,6 +1293,20 @@ function main {
     fi
     frame=$((frame+1))
     renderObjects
+    if ! :; then # Keyboard input
+      d=''
+      read -n 1 d
+      case $d in
+        (j) ux=$((ux+1)) ;;
+        (l) ux=$((ux-1)) ;;
+        (I) uy=$((uy+1)) ;;
+        (K) uy=$((uy-1)) ;;
+        (k) uz=$((uz+1)) ;;
+        (i) uz=$((uz-1)) ;;
+        (f) ur=$((ur+1)) ;;
+        (d) ur=$((ur-1)) ;;
+      esac
+    fi
     #updateClock
     #updateBoxes
   done
