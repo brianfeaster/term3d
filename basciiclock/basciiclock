@@ -1014,8 +1014,8 @@ function renderObjects {
         matRotz $frame
         matRotx $frame
         matRoty $frame
-        #matTrans $ux $uy $uz
         #matRoty "$ur"
+        #matTrans $ux $uy $uz
     )
   )
 
@@ -1258,20 +1258,20 @@ function main {
   resetCritters
 
   #buildUrchin 50 90
-  buildSimpleBox 15 1 @
-  buildSimpleBox 25 2 @
-  buildSimpleBox 35 4 @
-  buildSimpleBox 45 5 @
+  #buildSimpleBox 15 1 @
+  #buildSimpleBox 25 2 @
+  #buildSimpleBox 35 4 @
+  #buildSimpleBox 45 5 @
   #buildTexturedCubes 10 80 5
   #buildFloor 80 0  8
   #buildLines 60 0 30
-  if ! :; then
-    buildClock 50 0
-    buildClock 50 1
-    buildClock 50 2
-    buildClock 50 3
-    buildClock 50 4
-    buildClock 50 5
+  if :; then
+    buildClock 40 0
+    buildClock 40 1
+    buildClock 40 2
+    buildClock 40 3
+    buildClock 40 4
+    buildClock 40 5
   fi
   #vectorsDump
   #objectsDump
