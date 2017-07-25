@@ -893,7 +893,7 @@ function resetEmptyBuffers {
   depthBufferEmpty="$(printf "%.s9999 " $(range 1 $((TWIDTH*THEIGHT))))"
 }
 
-function renderObjectSet { # &oil
+function renderObjectSet { # &oil &frame &thread
   trap : PIPE INT QUIT TERM WINCH HUP ILL TRAP ABRT BUS FPE KILL USR1 SEGV USR2 ALRM CHLD CONT STOP TSTP TTIN TTOU URG XCPU XFSZ VTALRM PROF IO SYS
   local oi type cl ch count last mi
   for oi in ${oil[*]}; do
@@ -909,11 +909,11 @@ function renderObjectSet { # &oil
       (l) plotLines ;;
       (y) plotPoly ;;
     esac
-  done >"${frame}_$thread"
-  echo "q" >>"${frame}_$thread"
-}
+  done
+  echo "q"
+} >"${frame}_$thread"
 
-function scheduleObjectRenderers { # &frame &thread
+function scheduleObjectRenderers { # &frame !&thread
   local max=${#objects[*]} oi=0 oil=() oilc=0 
   # over all objects
   while [ $oi -lt $max ]; do
@@ -928,9 +928,9 @@ function scheduleObjectRenderers { # &frame &thread
     if [ ${facing[plane]} -eq 0 ]; then
       oil[oilc]=$((oi-7))
       oilc=$((oilc+1))
-      if [ 6 -lt $oilc ]; then # more things happen per thread the higher this number is
+      if [ 8 -lt $oilc ]; then # more things happen per thread the higher this number is
         thread=$((thread+1))
-        renderObjectSet & # &oil
+        renderObjectSet & # &oil &frame &thread
         oil=()
         oilc=0
       fi
@@ -940,7 +940,7 @@ function scheduleObjectRenderers { # &frame &thread
 
   if [ 0 -lt $oilc ]; then # Run any threads in the partially full list
     thread=$((thread+1))
-    renderObjectSet & # &oil
+    renderObjectSet & # &oil &frame &thread
   fi
 }
 
@@ -1001,7 +1001,7 @@ ux=0
 uy=0
 uz=0
 ur=0
-function renderObjects {
+function renderFrame {
   local thread=0 screenBuffer depthBuffer spin=0
   #[ $sec == 0 ] || [ "$1" == -resetCritters ] && resetCritters # Animal glyphs reset every minute or screen resize. 
 
@@ -1019,28 +1019,31 @@ function renderObjects {
     )
   )
 
-  matTransformStatic
-  doNormals
-  scheduleObjectRenderers # &frame &thread -- Creates files with "x y z k c" per line
+  # Block on too many render-frame threads
+  while [ -e frame$((frame-8)) ]; do sleep .1; done
+
   { # Fork
+    matTransformStatic
+    doNormals
+    scheduleObjectRenderers # &frame &thread -- Creates files with "x y z k c" per line
     trap : PIPE INT QUIT TERM WINCH HUP ILL TRAP ABRT BUS FPE KILL USR1 SEGV USR2 ALRM CHLD CONT STOP TSTP TTIN TTOU URG XCPU XFSZ VTALRM PROF IO SYS
     if [ $thread != 0 ]; then # if any rendering threads exist...
       eval screenBuffer=($screenBufferEmpty)
       depthBuffer=($depthBufferEmpty)
       fillDepthBuffer # &frame &thread &screenBuffer &depthBuffer &spin
       # Wait for sentinel to appear from previous frame's rendering thread
-      while [ ! -e frame$((frame-1)) ]; do : ; done
+      while [ ! -e frame$((frame-1)) ]; do sleep .1; done
       IFS=''
         printf "\e[0H${screenBuffer[*]}$(dumpStats)" # &thread &spin
         touch frame$frame # Tell next thread it can render to the screen now
       unset IFS
-      waitThenDelete frame$((frame-1)) "renderObjects"
+      waitThenDelete frame$((frame-1)) "renderFrame"
     else
       touch frame$frame # Tell next thread it can render to the screen now
-      waitThenDelete frame$((frame-1)) "renderObjects"
+      waitThenDelete frame$((frame-1)) "renderFrame"
     fi
   } &
-} #renderObjects 
+} #renderFrame 
 
 
 ##
@@ -1292,7 +1295,7 @@ function main {
       sigwinch=false
     fi
     frame=$((frame+1))
-    renderObjects
+    renderFrame
     if ! :; then # Keyboard input
       d=''
       read -n 1 d
