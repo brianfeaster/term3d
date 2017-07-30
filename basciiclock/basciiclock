@@ -1,11 +1,21 @@
 #!/bin/bash
 
-#### Poor man's console 3d lib
+## Poor man's console 3d lib
+
 ## _Concepts_
 ## _Useful_
 ## _Testing_
+## _Math_
+## _Time_
+## _Terminal_
+## _Debuggin_
+## _Vectors_
 ## _Planes_
+## _Objects_
 ## _Matrices_
+## _Globals_
+## _Rendering_
+## _Build_
 
 #### _Concepts_
 ##
@@ -65,6 +75,12 @@
 ##  matrix needs to be applied first before using so there needs to be a pre and
 ##  post transformed list.
 ##
+## Signal races
+##
+##  Usualy after a SIGINT from keyboard a subprocess doesn't finish writing the final
+##  sentinel to signal the next thread to display its frame.  I believe the signal
+##  is coming in before the new process is able to register a SIGINT ignore handler.
+##
 ####
 
 
@@ -72,11 +88,11 @@
 ##
 ## _Useful_
 ##
-function waitThenDelete { # (filename [origin])
+function waitThenDelete { # (filename [origin] delay)
   local fn=$1
 
   # Spin waiting for file to appear
-  while [ ! -e $fn ]; do :; done
+  while [ ! -e $fn ]; do sleep ${3:-.06}; done
 
   # Delete until successful
   while ! rm $fn; do
@@ -105,7 +121,7 @@ function assertEquals {
 
 
 ##
-## Math stuff.  Mappings from [0..120] -> [-120..120]
+## _Math_  Mappings from [0..120] -> [-120..120]
 ##
 SINTABLE=(0 6 12 18 25 31 37 43 49 54 60 65 70 75 80 85 89 93 97 101 104 107 110 112 114 116 117 119 119 120 120 120 119 119 117 116 114 112 110 107 104 101 97 93 89 85 80 75 70 65 60 54 49 43 37 31 25 18 12 6 0 -6 -12 -18 -25 -31 -37 -43 -49 -54 -60 -65 -70 -75 -80 -85 -89 -93 -97 -101 -104 -107 -110 -112 -114 -116 -117 -119 -119 -120 -120 -120 -119 -119 -117 -116 -114 -112 -110 -107 -104 -101 -97 -93 -89 -85 -80 -75 -70 -65 -60 -54 -49 -43 -37 -31 -25 -18 -12 -6)
 SINTABLEI=(0 -6 -12 -18 -25 -31 -37 -43 -49 -54 -60 -65 -70 -75 -80 -85 -89 -93 -97 -101 -104 -107 -110 -112 -114 -116 -117 -119 -119 -120 -120 -120 -119 -119 -117 -116 -114 -112 -110 -107 -104 -101 -97 -93 -89 -85 -80 -75 -70 -65 -60 -54 -49 -43 -37 -31 -25 -18 -12 -6 0 6 12 18 25 31 37 43 49 54 60 65 70 75 80 85 89 93 97 101 104 107 110 112 114 116 117 119 119 120 120 120 119 119 117 116 114 112 110 107 104 101 97 93 89 85 80 75 70 65 60 54 49 43 37 31 25 18 12 6)
@@ -117,7 +133,7 @@ function prerange { eval echo $1{$2..$3}; }
 
 
 ##
-## Time stuff
+## _Time_
 ##
 ## Consider time as normalized values:  hours [0..240] minuts & seconds [0..120].
 ## I do this because the above trig function domains are [0..120].
@@ -141,7 +157,7 @@ timeProbe $(date +'%H %M %S')
 
 
 ##
-## Terminal stuff
+## _Terminal_
 ##
 TWIDTH=80
 TWIDTH2=40
@@ -440,7 +456,7 @@ assertEquals Planes \
 
 
 ##
-## Objects: Array of objects representing points, lines, and closed polygon
+## _Objects_  Array of objects representing points, lines, and closed polygon
 ##
 objects=() #( label type color char preMatIdx planeIdx vecIdxCount vecIdx... ...)
 
@@ -490,7 +506,7 @@ function objectsDump {
 
 
 ##
-## Matrix
+## _Matrices_
 ##
 
 matIdent="1 0 0 0  0 1 0 0   0 0 1 0  0 0 0 1"
@@ -872,7 +888,7 @@ function plotPoints () { # &oi &cl &ch &last &mi
 
 
 ##
-## Globals
+## _Globals_
 ##
 powerButton=true
 jiffy=$SECONDS 
@@ -883,7 +899,7 @@ sigwinch=false
 
 
 ##
-## Rendering and Scheduling
+## _Rendering_ and Scheduling
 ##
 screenBufferEmpty=""
 depthBufferEmpty=""
@@ -894,7 +910,7 @@ function resetEmptyBuffers {
 }
 
 function renderObjectSet { # &oil &frame &thread
-  trap : PIPE INT QUIT TERM WINCH HUP ILL TRAP ABRT BUS FPE KILL USR1 SEGV USR2 ALRM CHLD CONT STOP TSTP TTIN TTOU URG XCPU XFSZ VTALRM PROF IO SYS
+  trap : INT
   local oi type cl ch count last mi
   for oi in ${oil[*]}; do
     type=${objects[oi+1]}
@@ -994,8 +1010,6 @@ function dumpStats { #&thread &spin
   fi
 }
 
-matrixPerspective=$(matMultNTrans $(matPerspective 80) $(matTrans 0 0 90) $(matScale 1 1 1))
-#matrixPerspective="$matIdent"
 
 ux=0
 uy=0
@@ -1005,49 +1019,51 @@ function renderFrame {
   local thread=0 screenBuffer depthBuffer spin=0
   #[ $sec == 0 ] || [ "$1" == -resetCritters ] && resetCritters # Animal glyphs reset every minute or screen resize. 
 
-  ## Global xform matrix
+  #matrixPerspective="$matIdent"
+  matrixPerspective=$(matMultNTrans $(matPerspective 80) $(matTrans 0 0 90) $(matScale 1 1 1))
+
   #matSetGlobal 0 $(matMultNTrans $matrixPerspective $(matTrans 0 0 $((  (frame % 100 - 50) * (frame % 100 - 15) - 100 )) )) # Broken zoon
   matSetGlobal 0 $(
-    trap : PIPE INT QUIT TERM WINCH HUP ILL TRAP ABRT BUS FPE KILL USR1 SEGV USR2 ALRM CHLD CONT STOP TSTP TTIN TTOU URG XCPU XFSZ VTALRM PROF IO SYS
+    trap : INT
     matMultNTrans $matrixPerspective $(
-        trap : PIPE INT QUIT TERM WINCH HUP ILL TRAP ABRT BUS FPE KILL USR1 SEGV USR2 ALRM CHLD CONT STOP TSTP TTIN TTOU URG XCPU XFSZ VTALRM PROF IO SYS
-        matRotz $frame
-        matRotx $frame
-        matRoty $frame
-        #matRoty "$ur"
-        #matTrans $ux $uy $uz
+        trap : INT
+        #matRotz $frame
+        #matRotx -8
+        #matRoty $frame
+        matRoty "$ur"
+        matTrans $ux $uy $uz
     )
   )
 
   # Block on too many render-frame threads
-  while [ -e frame$((frame-8)) ]; do sleep .1; done
+  while [ -e frame$((frame-5)) ]; do sleep .01; done
 
   { # Fork
+    trap : INT
     matTransformStatic
     doNormals
     scheduleObjectRenderers # &frame &thread -- Creates files with "x y z k c" per line
-    trap : PIPE INT QUIT TERM WINCH HUP ILL TRAP ABRT BUS FPE KILL USR1 SEGV USR2 ALRM CHLD CONT STOP TSTP TTIN TTOU URG XCPU XFSZ VTALRM PROF IO SYS
     if [ $thread != 0 ]; then # if any rendering threads exist...
       eval screenBuffer=($screenBufferEmpty)
       depthBuffer=($depthBufferEmpty)
       fillDepthBuffer # &frame &thread &screenBuffer &depthBuffer &spin
       # Wait for sentinel to appear from previous frame's rendering thread
-      while [ ! -e frame$((frame-1)) ]; do sleep .1; done
+      while [ ! -e frame$((frame-1)) ]; do sleep .02$frame; done #TODO this gets stuck sometimes
       IFS=''
         printf "\e[0H${screenBuffer[*]}$(dumpStats)" # &thread &spin
         touch frame$frame # Tell next thread it can render to the screen now
       unset IFS
-      waitThenDelete frame$((frame-1)) "renderFrame"
+      waitThenDelete frame$((frame-1)) "renderFrame" .03
     else
       touch frame$frame # Tell next thread it can render to the screen now
-      waitThenDelete frame$((frame-1)) "renderFrame"
+      waitThenDelete frame$((frame-1)) "renderFrame" .04
     fi
   } &
 } #renderFrame 
 
 
 ##
-## Build Models
+## _Build_ Models
 ##
 ret=0
 clockMid=0
@@ -1252,8 +1268,7 @@ function handler_sigwinch { sigwinch=true; }
 ##
 function main {
   framestop=${1:--1}
-  trap : HUP ILL TRAP ABRT BUS FPE KILL USR1 SEGV USR2 ALRM CHLD CONT STOP TSTP TTIN TTOU URG XCPU XFSZ VTALRM PROF IO SYS
-  trap handler_sigint   PIPE INT QUIT TERM
+  trap handler_sigint  PIPE INT QUIT TERM
   trap handler_sigwinch WINCH
   printf "\e[?25l\e[0m" # Disable cursor
   terminalProbe
@@ -1266,9 +1281,9 @@ function main {
   #buildSimpleBox 35 4 @
   #buildSimpleBox 45 5 @
   #buildTexturedCubes 10 80 5
-  #buildFloor 80 0  8
-  #buildLines 60 0 30
-  if :; then
+  buildFloor 80 0  8
+  buildLines 60 0 30
+  if ! :; then
     buildClock 40 0
     buildClock 40 1
     buildClock 40 2
@@ -1282,9 +1297,12 @@ function main {
   #matDump
   #read -n 1 -p 'Abort, Retry, Fail?' k
   touch frame$frame # Sentinel so the first frame will render
-  while [ ! -e stop ] && $powerButton && [ $frame -ne $framestop ] ; do
+
+  moi=$$
+  function handleUSR1 {
+  #while [ ! -e stop ] && $powerButton && [ $frame -ne $framestop ] ; do
     if [ $jiffy != $SECONDS ]; then
-      timeProbe # $((frame*483))
+      #timeProbe # $((frame*483))
       jiffy=$SECONDS
     fi
     if $sigwinch; then
@@ -1295,9 +1313,17 @@ function main {
       sigwinch=false
     fi
     frame=$((frame+1))
+    ur=$((ur+1))
     renderFrame
-    if ! :; then # Keyboard input
-      d=''
+    #updateClock
+    #updateBoxes
+  #done
+   { sleep .1;  $powerButton && kill -USR1 $moi; } &
+  }
+  trap handleUSR1 USR1
+  kill -USR1 $$
+
+  while [ "$d" != "q" ]; do
       read -n 1 d
       case $d in
         (j) ux=$((ux+1)) ;;
@@ -1309,11 +1335,10 @@ function main {
         (f) ur=$((ur+1)) ;;
         (d) ur=$((ur-1)) ;;
       esac
-    fi
-    #updateClock
-    #updateBoxes
   done
-  waitThenDelete frame$frame "main"
+  powerButton=false
+
+  waitThenDelete frame$frame "main" .05 #TODO The last call to renderFrame should create this file.  Not always after an SIGINT.
   printf "\e[?25h\nDone.\n" # Enable cursor
 }
 
