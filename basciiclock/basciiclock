@@ -81,6 +81,13 @@
 ##  sentinel to signal the next thread to display its frame.  I believe the signal
 ##  is coming in before the new process is able to register a SIGINT ignore handler.
 ##
+## Issues
+##
+##  It would appear when sleeping or even 'read -t'ing, signal handlers and/or child
+##  processes that also sleep will be silently killed.  Or maybe it's the trap
+##  handler that's killed.  It was a mess.  I've cleaned up the event and signal
+##  loop.
+##
 ####
 
 
@@ -92,11 +99,11 @@ function waitThenDelete { # (filename [origin] delay)
   local fn=$1
 
   # Spin waiting for file to appear
-  while [ ! -e $fn ]; do sleep ${3:-.06}; done
+  while [ ! -e $fn ]; do >&2 echo "Waiting for '$fn'  ${2:+\"$2\"}  Sleep ${3:-.06}"...; sleep ${3:-.06}; done
 
   # Delete until successful
   while ! rm $fn; do
-    echo "Unable to delete $fn${2:+ in $2}"
+    >&2 echo "Trying to delete '$fn'  ${2:+\"$2\"}"
   done
 }
 
@@ -143,14 +150,14 @@ min=0
 sec=0
 function timeProbe {
   local h m s
-  if [ $# == 1 ]; then
+  if (($#==1)); then
     read h m s <<< $(date -r $1 +'%H %M %S')
   else
     read h m s  <<< $(date +'%H %M %S')
   fi
-  hour=$((10#$h * 10)) #10# forces base 10 values otherwise octal 09 can't be parsed.
-  min=$((10#$m * 2))
-  sec=$((10#$s * 2))
+  ((hour=10#$h * 10)) #10# forces base 10 values otherwise octal 09 can't be parsed.
+  ((min=10#$m * 2))
+  ((sec=10#$s * 2))
 }
 timeProbe $(date +'%H %M %S')
 
@@ -175,17 +182,14 @@ resetCritters
 
 function terminalProbe {
   read THEIGHT TWIDTH <<<$(stty size)
-  THEIGHT2=$((THEIGHT/2))
-  TWIDTH2=$((TWIDTH/2))
+  ((THEIGHT2=THEIGHT/2))
+  ((TWIDTH2=TWIDTH/2))
 }
 
 function terminalIsInScreen { # ARGS: x y
   local x=$(($1+TWIDTH2))
   local y=$(($2+THEIGHT2))
-  if [ $x -lt 0 ] || [ $y -lt 0 ] || [ $TWIDTH -le $x ] || [ $THEIGHT -le $y ]; then
-    return 1
-  fi
-  return 0
+  ! ((x<0 || y<0 || TWIDTH<=x || THEIGHT<=y))
 }
 
 function G2 { printf "\e[$(($1+THEIGHT2));$(($2+TWIDTH2))H$3"; }
@@ -196,21 +200,21 @@ function terminalDrawLine { # ( z y x  z' y' x'  cl  ch)
   local kl=$7
   local ch=$8
   # Make sure line is drawn from left -x to right +x in the temrinal.
-  if [ $3 -le $6 ]; then
+  if (($3<=$6)); then
     x=$3; y=$2; z=$1; m=$6; n=$5; o=$4
   else
     x=$6; y=$5; z=$4; m=$3; n=$2; o=$1
   fi
   # (x,y) to (m,n) will always go left to right
-  dx=$((m-x))
-  if [ $2 -lt $5 ]; then dy=$(($5-$2)); else dy=$(($2-$5)); fi
-  dz=$((o-z))
+  ((dx=m-x))
+  if (($2<$5)); then ((dy=$5-$2)); else ((dy=$2-$5)); fi
+  ((dz=o-z))
 
   # Always walk or walk-step
 
-  if [ $dy -lt $dx ]; then # Small slope so walk left and step up or down
+  if ((dy<dx)); then # Small slope so walk left and step up or down
     w=''; xwi=1;  ywi=0
-    if [ $y -lt $n ]; then # walk right and down
+    if ((y<n)); then # walk right and down
        ws=$'\v'; xwsi=1; ywsi=1
     else                   # walk right and up
        ws=$'\eM'; xwsi=1; ywsi=-1
@@ -218,7 +222,7 @@ function terminalDrawLine { # ( z y x  z' y' x'  cl  ch)
     nx=$dx
     ny=$dy
   else # Large slope, so walk up or down and step right
-    if [ $y -lt $n ]; then # walk down and right
+    if ((y<n)); then # walk down and right
        w=$'\b\v'; xwi=0; ywi=1
        ws=$'\v'; xwsi=1; ywsi=1
     else                   # walk up and right
@@ -234,15 +238,11 @@ function terminalDrawLine { # ( z y x  z' y' x'  cl  ch)
   #  1 = in
   local state=0
 
-  yy=$((ny + ny))
-  yyxx=$((yy - nx - nx))
-  e=$((yy - nx))
-  i=$nx
-  dz=$((z-o))
+  ((yy=ny+ny,yyxx=yy-nx-nx,e=yy-nx,i=nx,dz=z-o))
 
-  while [ 0 -lt $i ]; do
-    if [ 0 -le $e ]; then # above mid-point
-      if [ $state == 1 ]; then
+  while ((0<i)); do
+    if ((0<=e)); then # above mid-point
+      if ((state==1)); then
         if terminalIsInScreen $x $y; then # done if out of screen
           echo $((x+TWIDTH2)) $((y+THEIGHT2)) $((z-dz*(nx-i)/nx)) $kl $ch
         else
@@ -254,10 +254,9 @@ function terminalDrawLine { # ( z y x  z' y' x'  cl  ch)
           echo $((x+TWIDTH2)) $((y+THEIGHT2)) $((z-dz*(nx-i)/nx)) $kl $ch
         fi
       fi
-      x=$((x+xwsi)); y=$((y+ywsi))
-      e=$((e + yyxx))
+      ((x+=xwsi,y+=ywsi,e+=yyxx))
     else # below mid-point
-      if [ $state == 1 ]; then
+      if ((1==state)); then
         if terminalIsInScreen $x $y; then  # done if out of screen
           echo $((x+TWIDTH2)) $((y+THEIGHT2)) $((z-dz*(nx-i)/nx)) $kl $ch
         else
@@ -269,10 +268,9 @@ function terminalDrawLine { # ( z y x  z' y' x'  cl  ch)
           echo $((x+TWIDTH2)) $((y+THEIGHT2)) $((z-dz*(nx-i)/nx)) $kl $ch
         fi
       fi
-      x=$((x+xwi)); y=$((y+ywi))
-      e=$((e + yy))
+      ((x+=xwi,y+=ywi,e+=yy))
     fi
-    i=$((i-1))
+    ((--i))
   done
 }
 
@@ -385,13 +383,13 @@ function vectorsLength { echo $((${#vectors[*]}/4)); }
 function vectorsAppend { # [x y z n ...] => &ret
   local len=${#vectors[*]}
   ret=$((len/4)) # keep track of the starting vector index
-  while [ 0 -lt $# ]; do
+  while ((0<$#)); do
     vectors[len+0]=$1
     vectors[len+1]=$2
     vectors[len+2]=$3
     vectors[len+3]=$4
     shift 4
-    len=$((len+4))
+    ((len+=4))
   done
 }
 
@@ -412,14 +410,14 @@ facing=(1 0) # Result of normal calc for each plane (group of 3 normalized verti
 function planesLength { echo $((${#planes[*]}/2)); }
 function planesAppend { # [ vectorsIdx matrixIdx ... ] => &ret
   local len=${#planes[*]}
-  ret=$((len/2))
-  while [ 0 -lt $# ]; do
+  ((ret=len/2))
+  while ((0<$#)); do
     planes[len]=$1
     planes[len+1]=$2
 
     facing[len/2]=-1
     shift ; shift
-    len=$((len+2))
+    ((len+=2))
   done
 }
 
@@ -430,11 +428,11 @@ function planesDump {
   echo 0: vecIdx=na matIdx=na [na] [na] [na] facing="${facing[0]}"
   echo 1: vecIdx=na matIdx=na [na] [na] [na] facing="${facing[1]}"
 
-  while [ $i -lt $max ]; do
+  while ((i<max)); do
     v=${planes[i*2]}
     m=${planes[i*2+1]}
     echo $i: vecIdx=$v matIdx=$m $(dv ${vectors[*]:v*4:12}) facing="${facing[i]}"
-    i=$((i+1))
+    ((++i))
   done
 }
 
@@ -471,19 +469,19 @@ function objectsAdd { # Args: label type color char matIdx planeIdx vectorsIdx..
   objects[len+4]=$5 # matIdx
   objects[len+5]=$6 # planeIdx
   shift 6
-  objects[len+6]=$(($#)) # vector count
-  len=$((len+7))
-  while [ 0 -lt $# ]; do
+  objects[len+6]=$# # vector count
+  ((len+=7))
+  while ((0<$#)); do
     objects[len]=$1
     shift
-    len=$((len+1))
+    ((++len))
   done
 }
 
 function objectsDump {
   echo "-- objects ----"
   local oi=0 max=${#objects[*]} count p c=0
-  while [ $oi -lt $max ]; do
+  while ((oi<max)); do
     printf "%d %8s %s [%d%s] m=%d " $c "\"${objects[oi+0]}\"" ${objects[oi+1]} ${objects[oi+2]} ${objects[oi+3]} ${objects[oi+4]}
     p=${objects[oi+5]}
     case $p in
@@ -493,13 +491,13 @@ function objectsDump {
     esac
     count=${objects[oi+6]}
     printf " $count:"
-    oi=$((oi+7))
+    ((oi+=7))
     case ${objects[oi-6]} in
       (*) printf " %s" ${objects[*]:oi:count} ;;      # Dump indices representing each point
       (l) printf " %2d-%-2d" ${objects[*]:oi:count} ;; # Dump index pairs representing a line
     esac
-    oi=$((oi + count))
-    c=$((c+1))
+    ((oi+=count))
+    ((++c))
   done
 }
 
@@ -524,7 +522,7 @@ function matPerspective () { echo 1000 0 0 0  0 1000 0 0  0 0 1000 0  0 0 $((100
 function matMultTransNVec () {
   local a=$1 b=$2 c=$3 d=$4 e=$5 f=$6 g=$7 h=$8 i=$9 j=${10} k=${11} l=${12} m=${13} n=${14} o=${15} p=${16}
   shift 12
-  while [ 8 -le $# ] && shift 4; do
+  while ((8<=$#)) && shift 4; do
     echo $((a*$1+b*$2+c*$3+d*$4)) $((e*$1+f*$2+g*$3+h*$4)) $((i*$1+j*$2+k*$3+l*$4)) $((m*$1+n*$2+o*$3+p*$4))
   done
 }
@@ -535,6 +533,7 @@ function matMultTransNVec () {
 #  Args: a b c d e f g h i j k l m n o p ...
 #
 function matMultNTrans () {
+ (( 0 != $# % 16 && $# < 32 )) && { >&2 echo "matMultNTrans has not mod 16 args: [$*]"; echo $matIdent; }
  local a=$1 b=$2 c=$3 d=$4 e=$5 f=$6 g=$7 h=$8 i=$9 j=${10} k=${11} l=${12} m=${13} n=${14} o=${15} p=${16}
  local aa bb cc dd ee ff gg hh ii jj kk ll mm nn oo pp
  shift 16
@@ -555,7 +554,7 @@ function matMultNTrans () {
     nn=$((m*$2 + n*$6 + o*${10} + p*${14}))
      oo=$((m*$3 + n*$7 + o*${11} + p*${15}))
       pp=$((m*$4 + n*$8 + o*${12} + p*${16}))
-   if [ 16 -eq $# ]; then echo $aa $bb $cc $dd $ee $ff $gg $hh $ii $jj $kk $ll $mm $nn $oo $pp; return; fi
+   if ((16==$#)); then echo $aa $bb $cc $dd $ee $ff $gg $hh $ii $jj $kk $ll $mm $nn $oo $pp; return; fi
    shift 16
    a=$((aa*$1 + bb*$5 + cc*$9    + dd*${13}))
     b=$((aa*$2 + bb*$6 + cc*${10} + dd*${14}))
@@ -573,10 +572,11 @@ function matMultNTrans () {
     n=$((mm*$2 + nn*$6 + oo*${10} + pp*${14}))
      o=$((mm*$3 + nn*$7 + oo*${11} + pp*${15}))
       p=$((mm*$4 + nn*$8 + oo*${12} + pp*${16}))
-   if [ 16 -eq $# ]; then echo $a $b $c $d $e $f $g $h $i $j $k $l $m $n $o $p; return; fi
+   if ((16==$#)); then echo $a $b $c $d $e $f $g $h $i $j $k $l $m $n $o $p; return; fi
    shift 16
  done
-}
+} # matMultNTrans 
+
 assertEquals matMultNTrans \
  "$(matMultNTrans 2 0 0 0  0 3 0 0  0 0 4 0  0 0 0 5 \
                  2 3 4 5  9 8 7 6  3 9 7 5  8 2 4 6 \
@@ -624,17 +624,18 @@ function matMultXformLocal () { # &mat
     mat[13]=$((a*$2 + b*$6 + c*${10} + d*${14}))
      mat[14]=$((a*$3 + b*$7 + c*${11} + d*${15}))
       mat[15]=$((a*$4 + b*$8 + c*${12} + d*${16}))
-   [ 32 -le $# ] && return
+   ((32<=$#)) && return
    shift 16
  done
 }
 
 
 function matMultTransVecNormalized { # &mi &vx &vy &vz &vn => &x &y &z
-  local n=$((mattrans[mi+12]*vx+mattrans[mi+13]*vy+mattrans[mi+14]*vz+mattrans[mi+15]*vn))
-  x=$(((mattrans[mi+0]*vx+mattrans[mi+1]*vy+mattrans[mi+2]*vz+mattrans[mi+3]*vn)/n))
-  y=$(((mattrans[mi+4]*vx+mattrans[mi+5]*vy+mattrans[mi+6]*vz+mattrans[mi+7]*vn)/n))
-  z=$(((mattrans[mi+8]*vx+mattrans[mi+9]*vy+mattrans[mi+10]*vz+mattrans[mi+11]*vn)/n))
+  local n
+  ((n=mattrans[mi+12]*vx+mattrans[mi+13]*vy+mattrans[mi+14]*vz+mattrans[mi+15]*vn))
+  ((x=(mattrans[mi+0]*vx+mattrans[mi+1]*vy+mattrans[mi+2]*vz+mattrans[mi+3]*vn)/n))
+  ((y=(mattrans[mi+4]*vx+mattrans[mi+5]*vy+mattrans[mi+6]*vz+mattrans[mi+7]*vn)/n))
+  ((z=(mattrans[mi+8]*vx+mattrans[mi+9]*vy+mattrans[mi+10]*vz+mattrans[mi+11]*vn)/n))
 }
 
 
@@ -647,13 +648,13 @@ mattrans=(1 0 0 0  0 1 0 0  0 0 1 0  0 0 0 1) # Transformed (by the global mat) 
 function matAppend { # => &ret
   local len=${#matstat[*]}
   ret=$((len/16)) # keep track of the starting vector index
-  while [ 16 -le $# ]; do
+  while ((16<=$#)); do
     matstat[len+0]=$1;     matstat[len+1]=$2;     matstat[len+2]=$3;     matstat[len+3]=$4
     matstat[len+4]=$5;     matstat[len+5]=$6;     matstat[len+6]=$7;     matstat[len+7]=$8
     matstat[len+8]=$9;     matstat[len+9]=${10};  matstat[len+10]=${11}; matstat[len+11]=${12}
     matstat[len+12]=${13}; matstat[len+13]=${14}; matstat[len+14]=${15}; matstat[len+15]=${16}
     shift 16
-    len=$((len+16))
+    ((len+=16))
    done
 }
 
@@ -666,6 +667,7 @@ function matSet { # &len
 }
 
 function matSetGlobal { # &len
+  (( $# % 17 )) && { >&2 echo "eatSetGlobal has not mod 17 args: [$*]"; }
   local x=$(($1*16)) # start at matrix index $1
   matstat[x+0]=$2;     matstat[x+1]=$3;     matstat[x+2]=$4;     matstat[x+3]=$5
   matstat[x+4]=$6;     matstat[x+5]=$7;     matstat[x+6]=$8;     matstat[x+7]=$9
@@ -681,8 +683,8 @@ function matSetGlobal { # &len
 # Multiply every static matrix matstat[*] with the global matrix matstat[0] into the mattrans array
 function matTransformStatic { # &mat &matstat $mattrans
  local a=${matstat[0]} b=${matstat[1]} c=${matstat[2]} d=${matstat[3]} e=${matstat[4]} f=${matstat[5]} g=${matstat[6]} h=${matstat[7]} i=${matstat[8]} j=${matstat[9]} k=${matstat[10]} l=${matstat[11]} m=${matstat[12]} n=${matstat[13]} o=${matstat[14]} p=${matstat[15]} aa bb cc dd ee ff gg hh ii jj kk ll mm nn oo pp
- local x=16 max=${#matstat[*]}
- while [ $x -lt $max ] ; do
+ local x=0 max=${#matstat[*]}
+ while (((x+=16)<max)); do
    aa=${matstat[x+0]}  bb=${matstat[x+1]}  cc=${matstat[x+2]}  dd=${matstat[x+3]}
    ee=${matstat[x+4]}  ff=${matstat[x+5]}  gg=${matstat[x+6]}  hh=${matstat[x+7]}
    ii=${matstat[x+8]}  jj=${matstat[x+9]}  kk=${matstat[x+10]} ll=${matstat[x+11]}
@@ -706,8 +708,6 @@ function matTransformStatic { # &mat &matstat $mattrans
    mattrans[x+13]=$((m*bb + n*ff + o*jj + p*nn))
    mattrans[x+14]=$((m*cc + n*gg + o*kk + p*oo))
    mattrans[x+15]=$((m*dd + n*hh + o*ll + p*pp))
-
-   x=$((x+16))
  done
 }
 
@@ -790,6 +790,7 @@ assertEquals matTransformStatic \
 # Return true if the normal is facing viewer
 # Completely inlined matrix multiply and normal calculation with z-component optimization
 function isPlaneFacing { # (idxVectors idxMatrices)
+  (( $# % 2 )) && { echo "isPlaneFacing has not mod 2 args: $*"; exit -1; }
   local vi=$((4*$1)) vx vy vz vn n x0 y0 x1 y1 x2 y2
   local mi=$((16*$2))
   vx=${vectors[vi]}
@@ -797,6 +798,7 @@ function isPlaneFacing { # (idxVectors idxMatrices)
   vz=${vectors[vi+2]}
   vn=${vectors[vi+3]}
   n=$((mattrans[mi+12]*vx+mattrans[mi+13]*vy+mattrans[mi+14]*vz+mattrans[mi+15]*vn))
+  (( n == 0 )) && { echo "n=0=${mattrans[mi+12]}\*$vx+${mattrans[mi+13]}\*$vy+${mattrans[mi+14]}\*$vz+${mattrans[mi+15]}\*$vn"; }
   x0=$((4*(mattrans[mi+0]*vx+mattrans[mi+1]*vy+mattrans[mi+2]*vz+mattrans[mi+3]*vn)/n))
   y0=$((4*(mattrans[mi+4]*vx+mattrans[mi+5]*vy+mattrans[mi+6]*vz+mattrans[mi+7]*vn)/n))
   vx=${vectors[vi+4]}
@@ -813,12 +815,12 @@ function isPlaneFacing { # (idxVectors idxMatrices)
   n=$((mattrans[mi+12]*vx+mattrans[mi+13]*vy+mattrans[mi+14]*vz+mattrans[mi+15]*vn))
   x2=$((4*(mattrans[mi+0]*vx+mattrans[mi+1]*vy+mattrans[mi+2]*vz+mattrans[mi+3]*vn)/n))
   y2=$((4*(mattrans[mi+4]*vx+mattrans[mi+5]*vy+mattrans[mi+6]*vz+mattrans[mi+7]*vn)/n))
-  [ $(((x1-x0)*(y2-y0)-(y1-y0)*(x2-x0))) -lt 0 ]
+  (( (x1-x0)*(y2-y0)-(y1-y0)*(x2-x0) < 0 ))
 }
 
 function plotLines () { # &oi &cl &ch &last &mat
   local idx=$oi vi vx vy vz vn a b c x y z
-  while [ $idx -lt $last ]; do # over every vector index in object
+  while ((idx<last)); do # over every vector index in object
     vi=${objects[idx]}
     vx=${vectors[$vi*4]}
     vy=${vectors[$vi*4+1]}
@@ -835,7 +837,7 @@ function plotLines () { # &oi &cl &ch &last &mat
     vn=${vectors[$vi*4+3]}
     matMultTransVecNormalized # &mat &vx &vy &vz &vn => &x &y &z &n
     terminalDrawLine $c $b $a $z $y $x $cl $ch
-    idx=$((idx+2))
+    ((idx+=2))
   done
 }
 
@@ -854,8 +856,8 @@ function plotPoly () { # &cl &ch &oi &last
   lx=$ox
   ly=$oy
   lz=$oz
-  idx=$((idx+1))
-  while [ $idx -lt $last ]; do # over every vector index in object
+  ((++idx))
+  while ((idx<last)); do # over every vector index in object
     vi=${objects[idx]}
     vx=${vectors[$vi*4]}
     vy=${vectors[$vi*4+1]}
@@ -866,14 +868,14 @@ function plotPoly () { # &cl &ch &oi &last
     lx=$x
     ly=$y
     lz=$z
-    idx=$((idx+1))
+    ((++idx))
   done
   terminalDrawLine  $z $y $x $oz $oy $ox $cl $ch
 }
 
 function plotPoints () { # &oi &cl &ch &last &mi
   local idx=$oi vi vx vy vz vn x y zn
-  while [ $idx -lt $last ]; do # over every vector index in object
+  while ((idx<last)); do # over every vector index in object
     vi=${objects[idx]} # Vector index in vectors array
     vx=${vectors[$vi*4]}
     vy=${vectors[$vi*4+1]}
@@ -881,7 +883,7 @@ function plotPoints () { # &oi &cl &ch &last &mi
     vn=${vectors[$vi*4+3]}
     matMultTransVecNormalized # &mi &vx &vy &vz &vn => &x &y &z
     terminalIsInScreen $x $y && echo $((x+TWIDTH2)) $((y+THEIGHT2)) $z $cl $ch
-    idx=$((idx+1))
+    ((++idx))
   done
 }
 
@@ -891,7 +893,6 @@ function plotPoints () { # &oi &cl &ch &last &mi
 ## _Globals_
 ##
 powerButton=true
-jiffy=$SECONDS 
 frame=0
 framestop=60
 sigwinch=false
@@ -910,7 +911,7 @@ function resetEmptyBuffers {
 }
 
 function renderObjectSet { # &oil &frame &thread
-  trap : INT
+  #trap : INT
   local oi type cl ch count last mi
   for oi in ${oil[*]}; do
     type=${objects[oi+1]}
@@ -918,8 +919,8 @@ function renderObjectSet { # &oil &frame &thread
     ch=${objects[oi+3]}
     mi=$((16*${objects[oi+4]}))
     count=${objects[oi+6]}
-    oi=$((oi+7))
-    last=$((oi + count)) # compute index of last element in this object
+    ((oi+=7))
+    ((last=oi+count)) # compute index of last element in this object
     case $type in # &cl &ch &oi &last &mi
       (p) plotPoints ;;
       (l) plotLines ;;
@@ -932,7 +933,7 @@ function renderObjectSet { # &oil &frame &thread
 function scheduleObjectRenderers { # &frame !&thread
   local max=${#objects[*]} oi=0 oil=() oilc=0 
   # over all objects
-  while [ $oi -lt $max ]; do
+  while ((oi<max)); do
     #symbol=${objects[oi+0]}
     type=${objects[oi+1]}
     cl=${objects[oi+2]}
@@ -941,12 +942,12 @@ function scheduleObjectRenderers { # &frame !&thread
     count=${objects[oi+6]}
     oi=$((oi+7))
     last=$((count + oi)) # compute index of last element in this object
-    if [ ${facing[plane]} -eq 0 ]; then
+    if ((0==${facing[plane]})); then
       oil[oilc]=$((oi-7))
-      oilc=$((oilc+1))
-      if [ 8 -lt $oilc ]; then # more things happen per thread the higher this number is
-        thread=$((thread+1))
-        renderObjectSet & # &oil &frame &thread
+      ((++oilc))
+      if ((8<oilc)); then # more things happen per thread the higher this number is
+        ((++thread))
+        { setAllTraps renderObjectSet_frame$frame; renderObjectSet; } & # &oil &frame &thread
         oil=()
         oilc=0
       fi
@@ -954,9 +955,9 @@ function scheduleObjectRenderers { # &frame !&thread
     oi=$last # Skip object index to next object in array
   done
 
-  if [ 0 -lt $oilc ]; then # Run any threads in the partially full list
-    thread=$((thread+1))
-    renderObjectSet & # &oil &frame &thread
+  if ((0<oilc)); then # Run any threads in the partially full list
+    ((++thread))
+    { setAllTraps renderObjectSet_frame$frame; renderObjectSet; } & # &oil &frame &thread
   fi
 }
 
@@ -964,41 +965,47 @@ function scheduleObjectRenderers { # &frame !&thread
 function doNormals { # &mat
   local i=2 # skip the first two fixed normal bools
   local max=$(planesLength)
-  while [ $i -lt $max ]; do
+  while ((i<max)); do
     isPlaneFacing ${planes[i*2]} ${planes[i*2+1]}
     facing[i]=$?
-    i=$((i+1))
+    ((++i))
   done
 }
 
 function fillDepthBuffer { # &frame &thread &screenBuffer &depthBuffer
   # clear the screen buffer
-  local idx x y z k c i=0
+  local idx x y z k c i=0 # TODO is i used?
   for filename in $(prerange ${frame}_ 1 $thread); do
+
     while [ ! -e $filename ]; do
-      #1<&2 echo "ERROR: $filename doesn't exist."
-      #sleep 1
-      spin=$((spin+1))
+      >&2 echo "ERROR: fillDepthBuffer: $filename doesn't exist frame$frame."
+      sleep .1
+      ((++spin))
     done # spin until the file is created
+
     while :; do
       read x y z k c
+      #>&2 printf "read frame$frame '$x' '$y' '$z' '$k' '$c'\n"
       [ "$x" == q ] && break
+      [ ${#c} != 1 ] && { printf "::fillDepthBuffer read a bad thing ['$x' '$y' '$z' '$k' '$c'] frame$frame\n"; kill -9 $moi; exit -1; }
       if [ -z "$c" ]; then
-        #1<&2 echo "ERROR: only read from $filename ':$x :$y :$z :$k :$c'"
-        #sleep 1
-        spin=$((spin+1))
+        <&2 echo "ERROR: only read from $filename ':$x :$y :$z :$k :$c'"
+        sleep 1
+        ((++spin))
         continue
       fi
-      idx=$((x+y*TWIDTH))
-      if [ $z -lt ${depthBuffer[idx]} ]; then
+      ((idx=x+y*TWIDTH))
+      if ((z < depthBuffer[idx])); then
         screenBuffer[idx]="[${COLORS[k]}m$c"
         depthBuffer[idx]=$z
       fi
     done <"$filename"
+
     while ! rm $filename; do # Remove the files the rendering processes created
-      echo "cant delete file $filename in fillDepthBuffer"
+      echo "cant delete file $filename in fillDepthBuffer frame$frame"
     done
-    i=$((i+1))
+
+    ((++i))
   done
 }
 
@@ -1006,59 +1013,86 @@ function dumpStats { #&thread &spin
   # parent: facing thread
   if [ $SECONDS -ne 0 ]; then
     frameRate=$((100*frame/(SECONDS)))
-    PC 8 "\e[$((THEIGHT-4))Hframe:$frame\nfps:$((frameRate/100)).$((frameRate%100))\nthreads:$thread\nspins:$spin"
+    PC 8 "frame:$frame\nfps:$((frameRate/100)).$((frameRate%100))\nthreads:$thread\nspins:$spin"
   fi
 }
 
-
 ux=0
-uy=0
+uy=12
 uz=0
 ur=0
 function renderFrame {
-  local thread=0 screenBuffer depthBuffer spin=0
+  local thread=0 screenBuffer depthBuffer spin=0 matrixPerspective
   #[ $sec == 0 ] || [ "$1" == -resetCritters ] && resetCritters # Animal glyphs reset every minute or screen resize. 
-
   #matrixPerspective="$matIdent"
-  matrixPerspective=$(matMultNTrans $(matPerspective 80) $(matTrans 0 0 90) $(matScale 1 1 1))
 
-  #matSetGlobal 0 $(matMultNTrans $matrixPerspective $(matTrans 0 0 $((  (frame % 100 - 50) * (frame % 100 - 15) - 100 )) )) # Broken zoon
-  matSetGlobal 0 $(
-    trap : INT
-    matMultNTrans $matrixPerspective $(
-        trap : INT
-        #matRotz $frame
-        #matRotx -8
-        #matRoty $frame
-        matRoty "$ur"
-        matTrans $ux $uy $uz
+#>&2 printf "\n\e[32m    ::${frame}renderFrame\e[0m\n"
+
+#>&2 printf "\e[32m      ${frame} compute perspective...\e[0m\n"
+  matrixPerspective=$(
+    setAllTraps ${frame}renderFrameA
+    matMultNTrans $(
+      setAllTraps ${frame}renderFrameB
+      matPerspective 80
+      matTrans 0 0 90
+      matScale 1 1 1
     )
   )
 
+#>&2 printf "\e[32m      ${frame} compute set global matrix...\e[0m\n"
+
+  #matSetGlobal 0 $(matMultNTrans $matrixPerspective $(matTrans 0 0 $((  (frame % 100 - 50) * (frame % 100 - 15) - 100 )) )) # Broken zoon
+  matSetGlobal 0 $(
+    setAllTraps renderFrame2_frame$frame
+    #trap : INT
+    matMultNTrans $matrixPerspective $(
+      setAllTraps renderFrame3_frame$frame
+      #trap : INT
+      matRotz $frame
+      matRotx -8
+      matRoty $frame
+      #matRoty "$ur"
+      #matTrans $ux $uy $uz
+    )
+  )
+
+#>&2 printf "\e[32m      ${frame} check thread count...\e[0m\n"
+
   # Block on too many render-frame threads
-  while [ -e frame$((frame-5)) ]; do sleep .01; done
+  while [ -e frame$((frame-6)) ]; do
+    #>&2 echo "${frame}renderFrame 
+    sleep .01
+  done
+
+#>&2 printf "\e[32m      ${frame} forking rendererThread\e[0m\n"
 
   { # Fork
-    trap : INT
+    setAllTraps renderFrame4_frame$frame
+#>&2 printf "\n\e[1;36m      ::${frame}rendererThread\e[0m"
+    #trap : INT
     matTransformStatic
     doNormals
     scheduleObjectRenderers # &frame &thread -- Creates files with "x y z k c" per line
-    if [ $thread != 0 ]; then # if any rendering threads exist...
+    if ((0!=thread)); then # if any rendering threads exist...
       eval screenBuffer=($screenBufferEmpty)
       depthBuffer=($depthBufferEmpty)
       fillDepthBuffer # &frame &thread &screenBuffer &depthBuffer &spin
       # Wait for sentinel to appear from previous frame's rendering thread
       while [ ! -e frame$((frame-1)) ]; do sleep .02$frame; done #TODO this gets stuck sometimes
       IFS=''
-        printf "\e[0H${screenBuffer[*]}$(dumpStats)" # &thread &spin
+        printf "\e[0H${screenBuffer[*]}\e[$((THEIGHT-4))H$(dumpStats)" # &thread &spin
+        #>&2 printf " \e[1;36m($frame screenBuffer > STDOUT)\e[0m "
         touch frame$frame # Tell next thread it can render to the screen now
       unset IFS
-      waitThenDelete frame$((frame-1)) "renderFrame" .03
+      waitThenDelete frame$((frame-1)) "renderFrame_frame$frame" .03
     else
       touch frame$frame # Tell next thread it can render to the screen now
-      waitThenDelete frame$((frame-1)) "renderFrame" .04
+      waitThenDelete frame$((frame-1)) "renderFrame_else_frame$frame" .04
     fi
+#>&2 printf "\n\e[1;36m      --${frame}rendererThread\e[0m"
   } &
+
+#>&2 printf "\e[32m    --${frame}renderFrame\e[0m\n"
 } #renderFrame 
 
 
@@ -1128,9 +1162,9 @@ function buildTexturedCubes {
   # Generate the plane and textured points
   local  x  y=$((-r/d-0)) i=12
   local tf=($y $y 0 1   $y $((r/d-1)) 0 1   $((r/d-1)) $y 0 1) # normal plane
-  while [ $y -le $((r/d)) ]; do
+  while ((y <= r/d)); do
     x=$((-r/d-0))
-    while [ $x -le $((r/d)) ]; do
+    while ((x <= r/d)); do
       tf[i]=$((d*x))
       tf[i+1]=$((d*y))
       tf[i+2]=0
@@ -1194,9 +1228,9 @@ function buildFloor {
 
   function buildTexturedFace {
     local  x  z=$((-r/d))
-    while [ $z -le $((r/d)) ]; do
+    while ((z <= r/d)); do
       x=$((-r/d))
-      while [ $x -le $((r/d)) ]; do
+      while ((x <= r/d)); do
         echo -n "$((d*x)) 0 $((d*z)) 1 "
         x=$((x+1))
       done
@@ -1214,15 +1248,16 @@ function buildLines {
   local d=$3 # density of the cubes
 
   function buildTexturedFace {
-    local  x  z=$((-r/d))
-    while [ $z -le $((r/d)) ]; do
+    local x z
+    ((z=-r/d))
+    while ((z <= r/d)); do
       x=$((-r/d))
-      while [ $x -le $((r/d)) ]; do
+      while ((x <= r/d)); do
         vectorsAppend $(matMultTransNVec $(matTrans 0 $s 0) $((d*x)) 0 $((d*z)) 1    $((d*x)) -30 $((d*z)) 1 )
         objectsAdd FLOOR l $((RANDOM%16)) @ 0 1 $(range $ret $((ret+1)) )
-        x=$((x+1))
+        ((++x))
       done
-      z=$((z+1))
+      ((++z))
     done
   }
   buildTexturedFace 
@@ -1247,7 +1282,7 @@ function buildSimpleBox {
 function buildUrchin {
   local origin ret c=$1 r=$2 glyphs=('.' '+' '@' 'x' 'o' '-')
 
-  while [ 0 -lt $c ]; do
+  while ((0<c)); do
     vectorsAppend $(matMultTransNVec $(matMultNTrans $(matTrans 0 0 0) $(matRotx $((RANDOM%120))) $(matRoty $((RANDOM%120))) $(matRotz $((RANDOM%120))) ) $((r/2)) 0 0 1 $r 0 0 1)
     objectsAdd LINE l $((RANDOM%15+1)) ${glyphs[c%6]} 0 1 $ret $((ret+1))
    c=$((c-1))
@@ -1255,12 +1290,22 @@ function buildUrchin {
 }
 
 
+# bash
+function setAllTraps2 {
+  for s in {1..64}; do
+    trap ">&2 echo '($1_sig$s)'" $s
+  done
+}
+
+function setAllTraps {
+  trap ">&2 echo '($1_sig2)'" 2
+}
 
 
 ##
 ## Exception handlers
 ##
-function handler_sigint { powerButton=false; }
+function handler_sigint { echo "++${frame}handler_sigint [${FUNCNAME[*]}]"; powerButton=false; }
 function handler_sigwinch { sigwinch=true; }
 
 ##
@@ -1268,9 +1313,11 @@ function handler_sigwinch { sigwinch=true; }
 ##
 function main {
   framestop=${1:--1}
+  setAllTraps main
   trap handler_sigint  PIPE INT QUIT TERM
   trap handler_sigwinch WINCH
   printf "\e[?25l\e[0m" # Disable cursor
+  >&2 printf "\e[31m::${frame}main\e[0m"
   terminalProbe
   resetEmptyBuffers
   resetCritters
@@ -1281,9 +1328,9 @@ function main {
   #buildSimpleBox 35 4 @
   #buildSimpleBox 45 5 @
   #buildTexturedCubes 10 80 5
-  buildFloor 80 0  8
-  buildLines 60 0 30
-  if ! :; then
+  #buildFloor 80 0  8
+  #buildLines 60 0 30
+  if  :; then
     buildClock 40 0
     buildClock 40 1
     buildClock 40 2
@@ -1297,49 +1344,61 @@ function main {
   #matDump
   #read -n 1 -p 'Abort, Retry, Fail?' k
   touch frame$frame # Sentinel so the first frame will render
-
   moi=$$
+
   function handleUSR1 {
-  #while [ ! -e stop ] && $powerButton && [ $frame -ne $framestop ] ; do
-    if [ $jiffy != $SECONDS ]; then
-      #timeProbe # $((frame*483))
-      jiffy=$SECONDS
+    ((++frame, ++ur))
+    #>&2 printf "\n\e[31m  ::${frame}handleUSR1\e[0m"
+    if $powerButton; then
+      if $sigwinch; then
+        echo handler
+        wait
+        terminalProbe
+        resetEmptyBuffers
+        sigwinch=false
+      fi
+      #>&2 printf "\n\e[31m    ${frame}handleUSR1 call renderFrame...\e[0m"
+      renderFrame
+      #updateClock
+      #updateBoxes
+      {
+        setAllTraps renderFrame2_frame$frame
+        #>&2 printf "\n\e[1;31m      ${frame}scheduleInterrupt sleep\e[0m"
+        sleep .01
+        #>&2 printf "\n\e[1;31m      ${frame}scheduleInterrupt kill -USR1\e[0m"
+        kill -USR1 $moi
+        #>&2 printf "\n\e[1;31m    --${frame}scheduleInterrupt!!!!!!!!!!!!!!!!!!!!!!!!\e[0m"
+      } &
+      #>&2 printf "\n\e[1;31m    ::${frame}scheduleInterrupt (forked $!)\e[0m"
+      #>&2 printf "\n\e[31m  --${frame}handleUSR1\e[0m"
+    #else
+      #>&2 printf "\n\e[31m  --${frame}handleUSR1 do not renderFrame do not schedule another interrupt! We are done now.\e[0m"
     fi
-    if $sigwinch; then
-      echo handler
-      wait
-      terminalProbe
-      resetEmptyBuffers
-      sigwinch=false
-    fi
-    frame=$((frame+1))
-    ur=$((ur+1))
-    renderFrame
-    #updateClock
-    #updateBoxes
-  #done
-   { sleep .1;  $powerButton && kill -USR1 $moi; } &
   }
   trap handleUSR1 USR1
-  kill -USR1 $$
+  handleUSR1
 
-  while [ "$d" != "q" ]; do
-      read -n 1 d
-      case $d in
-        (j) ux=$((ux+1)) ;;
-        (l) ux=$((ux-1)) ;;
-        (I) uy=$((uy+1)) ;;
-        (K) uy=$((uy-1)) ;;
-        (k) uz=$((uz+1)) ;;
-        (i) uz=$((uz-1)) ;;
-        (f) ur=$((ur+1)) ;;
-        (d) ur=$((ur-1)) ;;
-      esac
+  while [ "$d" != "q" ] && $powerButton; do
+    read  -n 1 d
+    case $d in
+      (j) ((ux=ux+1)) ;;
+      (l) ((ux=ux-1)) ;;
+      (I) ((uy=uy+1)) ;;
+      (K) ((uy=uy-1)) ;;
+      (k) ((uz=uz+1)) ;;
+      (i) ((uz=uz-1)) ;;
+      (f) ((ur=ur+1)) ;;
+      (d) ((ur=ur-1)) ;;
+      (q) powerButton=false ;;
+    esac
   done
-  powerButton=false
 
-  waitThenDelete frame$frame "main" .05 #TODO The last call to renderFrame should create this file.  Not always after an SIGINT.
-  printf "\e[?25h\nDone.\n" # Enable cursor
+  ##waiting for file:frame50 to appear in main_frame50 so sleeping .05
+
+  waitThenDelete frame$frame "End of main" .55
+  #>&2 printf "\n\e[31m--${frame}main\e[0m"
+  printf "\e[?25h\nDone." # Enable cursor
+  #printf '%.2s\n' {1..47}
 }
 
 time main -50 # Run indefinitely or until ^C
