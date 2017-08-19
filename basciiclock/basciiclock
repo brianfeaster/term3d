@@ -88,6 +88,12 @@
 ##  handler that's killed.  It was a mess.  I've cleaned up the event and signal
 ##  loop.
 ##
+## Refactoring
+##
+##  The interrupt loop should probably check first for existing render threads count
+##  before incrementng the frame and forking a new render thread.  Otherwise it should
+##  just continue and fork another delayed interrupt.
+##
 ####
 
 
@@ -99,7 +105,10 @@ function waitThenDelete { # (filename [origin] delay)
   local fn=$1
 
   # Spin waiting for file to appear
-  while [ ! -e $fn ]; do >&2 echo "Waiting for '$fn'  ${2:+\"$2\"}  Sleep ${3:-.06}"...; sleep ${3:-.06}; done
+  while [ ! -e $fn ]; do
+    >&2 echo "Waiting for '$fn'  ${2:+\"$2\"} to hello"
+    sleep ${3:-.06}
+  done
 
   # Delete until successful
   while ! rm $fn; do
@@ -894,7 +903,6 @@ function plotPoints () { # &oi &cl &ch &last &mi
 ##
 powerButton=true
 frame=0
-framestop=60
 sigwinch=false
 
 
@@ -930,6 +938,29 @@ function renderObjectSet { # &oil &frame &thread
   echo "q"
 } >"${frame}_$thread"
 
+function renderAllObjects { # &frame !&thread
+  local oi=0 max=${#objects[*]} type cl ch mi plane count last
+  while ((oi<max)); do
+    type=${objects[oi+1]}
+    cl=${objects[oi+2]}
+    ch=${objects[oi+3]}
+    mi=$((16*${objects[oi+4]}))
+    plane=${objects[oi+5]}
+    count=${objects[oi+6]}
+    ((oi+=7))
+    last=$((oi + count)) # compute index of last element in this object
+    if ((0==${facing[plane]})); then
+      case $type in # &cl &ch &oi &last &mi
+        (p) plotPoints ;;
+        (l) plotLines ;;
+        (y) plotPoly ;;
+      esac
+    fi
+    oi=$last
+  done
+  echo "q"
+} >"${frame}_$thread"
+
 function scheduleObjectRenderers { # &frame !&thread
   local max=${#objects[*]} oi=0 oil=() oilc=0 
   # over all objects
@@ -947,7 +978,7 @@ function scheduleObjectRenderers { # &frame !&thread
       ((++oilc))
       if ((8<oilc)); then # more things happen per thread the higher this number is
         ((++thread))
-        { setAllTraps renderObjectSet_frame$frame; renderObjectSet; } & # &oil &frame &thread
+        { setAllTraps renderObjectSet_frame$frame; renderObjectSet; } #BF & # &oil &frame &thread
         oil=()
         oilc=0
       fi
@@ -957,7 +988,7 @@ function scheduleObjectRenderers { # &frame !&thread
 
   if ((0<oilc)); then # Run any threads in the partially full list
     ((++thread))
-    { setAllTraps renderObjectSet_frame$frame; renderObjectSet; } & # &oil &frame &thread
+    { setAllTraps renderObjectSet_frame$frame; renderObjectSet; } #BF & # &oil &frame &thread
   fi
 }
 
@@ -979,7 +1010,7 @@ function fillDepthBuffer { # &frame &thread &screenBuffer &depthBuffer
 
     while [ ! -e $filename ]; do
       >&2 echo "ERROR: fillDepthBuffer: $filename doesn't exist frame$frame."
-      sleep .1
+      #sleep .1
       ((++spin))
     done # spin until the file is created
 
@@ -990,7 +1021,7 @@ function fillDepthBuffer { # &frame &thread &screenBuffer &depthBuffer
       [ ${#c} != 1 ] && { printf "::fillDepthBuffer read a bad thing ['$x' '$y' '$z' '$k' '$c'] frame$frame\n"; kill -9 $moi; exit -1; }
       if [ -z "$c" ]; then
         <&2 echo "ERROR: only read from $filename ':$x :$y :$z :$k :$c'"
-        sleep 1
+        #sleep 1
         ((++spin))
         continue
       fi
@@ -1022,13 +1053,13 @@ uy=12
 uz=0
 ur=0
 function renderFrame {
-  local thread=0 screenBuffer depthBuffer spin=0 matrixPerspective
   #[ $sec == 0 ] || [ "$1" == -resetCritters ] && resetCritters # Animal glyphs reset every minute or screen resize. 
+
+  #>&3 printf ")a"
+  local thread=0 screenBuffer depthBuffer spin=0 matrixPerspective
+
+  #>&3 printf "b"
   #matrixPerspective="$matIdent"
-
-#>&2 printf "\n\e[32m    ::${frame}renderFrame\e[0m\n"
-
-#>&2 printf "\e[32m      ${frame} compute perspective...\e[0m\n"
   matrixPerspective=$(
     setAllTraps ${frame}renderFrameA
     matMultNTrans $(
@@ -1039,8 +1070,7 @@ function renderFrame {
     )
   )
 
-#>&2 printf "\e[32m      ${frame} compute set global matrix...\e[0m\n"
-
+  #>&3 printf "c"
   #matSetGlobal 0 $(matMultNTrans $matrixPerspective $(matTrans 0 0 $((  (frame % 100 - 50) * (frame % 100 - 15) - 100 )) )) # Broken zoon
   matSetGlobal 0 $(
     setAllTraps renderFrame2_frame$frame
@@ -1056,43 +1086,48 @@ function renderFrame {
     )
   )
 
-#>&2 printf "\e[32m      ${frame} check thread count...\e[0m\n"
-
-  # Block on too many render-frame threads
-  while [ -e frame$((frame-6)) ]; do
-    #>&2 echo "${frame}renderFrame 
-    sleep .01
-  done
-
-#>&2 printf "\e[32m      ${frame} forking rendererThread\e[0m\n"
-
+  #>&3 printf "d"
   { # Fork
     setAllTraps renderFrame4_frame$frame
-#>&2 printf "\n\e[1;36m      ::${frame}rendererThread\e[0m"
+    #exec 3>proc$frame
     #trap : INT
+    #>&3 printf "$frame main renderFrameSub A"
+    #>&3 printf "B"
     matTransformStatic
+    #>&3 printf "C"
     doNormals
-    scheduleObjectRenderers # &frame &thread -- Creates files with "x y z k c" per line
-    if ((0!=thread)); then # if any rendering threads exist...
-      eval screenBuffer=($screenBufferEmpty)
-      depthBuffer=($depthBufferEmpty)
-      fillDepthBuffer # &frame &thread &screenBuffer &depthBuffer &spin
-      # Wait for sentinel to appear from previous frame's rendering thread
-      while [ ! -e frame$((frame-1)) ]; do sleep .02$frame; done #TODO this gets stuck sometimes
-      IFS=''
-        printf "\e[0H${screenBuffer[*]}\e[$((THEIGHT-4))H$(dumpStats)" # &thread &spin
-        #>&2 printf " \e[1;36m($frame screenBuffer > STDOUT)\e[0m "
-        touch frame$frame # Tell next thread it can render to the screen now
-      unset IFS
-      waitThenDelete frame$((frame-1)) "renderFrame_frame$frame" .03
-    else
-      touch frame$frame # Tell next thread it can render to the screen now
-      waitThenDelete frame$((frame-1)) "renderFrame_else_frame$frame" .04
-    fi
-#>&2 printf "\n\e[1;36m      --${frame}rendererThread\e[0m"
-  } &
 
-#>&2 printf "\e[32m    --${frame}renderFrame\e[0m\n"
+    #>&3 printf "D"
+    #scheduleObjectRenderers # &frame &thread -- Creates files with "x y z k c" per line
+    thread=1; renderAllObjects
+
+    #>&3 printf "E"
+    if ((0!=thread)); then # if any rendering threads exist...
+      #>&3 printf "a"
+      eval screenBuffer=($screenBufferEmpty)
+      #>&3 printf "b"
+      depthBuffer=($depthBufferEmpty)
+      #>&3 printf "c"
+      fillDepthBuffer # &frame &thread &screenBuffer &depthBuffer &spin
+      #>&3 printf "d"
+      # Wait for sentinel to appear from previous frame's rendering thread
+      while [ ! -e frame$((frame-1)) ]; do
+        >&2 echo .02$frame
+        sleep .03$frame
+      done #TODO this gets stuck sometimes
+      IFS=''
+      #>&3 printf "e"
+        printf "\e[0H${screenBuffer[*]}\e[$((THEIGHT-4))H$(dumpStats)" # &thread &spin
+      unset IFS
+      #>&3 printf "f."
+    fi
+    #>&3 printf "F"
+    touch frame$frame # Tell next thread it can render to the screen now
+    waitThenDelete frame$((frame-1)) "renderFrame_else_frame$frame" .04
+    #>&3 printf "G.\n"
+  } # BF &
+
+  #>&3 printf "e."
 } #renderFrame 
 
 
@@ -1313,11 +1348,11 @@ function handler_sigwinch { sigwinch=true; }
 ##
 function main {
   framestop=${1:--1}
-  setAllTraps main
+  setAllTraps ${frame}main
   trap handler_sigint  PIPE INT QUIT TERM
   trap handler_sigwinch WINCH
   printf "\e[?25l\e[0m" # Disable cursor
-  >&2 printf "\e[31m::${frame}main\e[0m"
+  #>&2 printf "\e[31m::${frame}main\e[0m"
   terminalProbe
   resetEmptyBuffers
   resetCritters
@@ -1345,42 +1380,48 @@ function main {
   #read -n 1 -p 'Abort, Retry, Fail?' k
   touch frame$frame # Sentinel so the first frame will render
   moi=$$
+  #exec 3>main.out
 
   function handleUSR1 {
-    ((++frame, ++ur))
-    #>&2 printf "\n\e[31m  ::${frame}handleUSR1\e[0m"
-    if $powerButton; then
+    # Block on too many render-frame threads
+    if $powerButton && ((frame!=framestop)); then
       if $sigwinch; then
-        echo handler
+        echo sigwinch
         wait
         terminalProbe
         resetEmptyBuffers
         sigwinch=false
       fi
-      #>&2 printf "\n\e[31m    ${frame}handleUSR1 call renderFrame...\e[0m"
-      renderFrame
-      #updateClock
-      #updateBoxes
+      if [ ! -e frame$((frame-8)) ]; then
+        ((++frame, ++ur))
+        #>&3 printf "$frame main trapusr1 A renderFrame("
+        renderFrame &
+        #updateClock
+        #updateBoxes
+        #>&3 printf "B"
+      fi
       {
-        setAllTraps renderFrame2_frame$frame
-        #>&2 printf "\n\e[1;31m      ${frame}scheduleInterrupt sleep\e[0m"
-        sleep .01
-        #>&2 printf "\n\e[1;31m      ${frame}scheduleInterrupt kill -USR1\e[0m"
+        setAllTraps ${frame}main2
+        #exec 3>sch$frame
+        #>&3 printf "$frame main trapUSR1 schedulerSub A"
+        #>&3 printf "B kill -USR1 $$"
         kill -USR1 $moi
-        #>&2 printf "\n\e[1;31m    --${frame}scheduleInterrupt!!!!!!!!!!!!!!!!!!!!!!!!\e[0m"
+        #>&3 printf ".\n"
       } &
-      #>&2 printf "\n\e[1;31m    ::${frame}scheduleInterrupt (forked $!)\e[0m"
-      #>&2 printf "\n\e[31m  --${frame}handleUSR1\e[0m"
-    #else
-      #>&2 printf "\n\e[31m  --${frame}handleUSR1 do not renderFrame do not schedule another interrupt! We are done now.\e[0m"
+      #>&3 printf ".\n"
+    else
+      #>&3 printf "poweroff."
+      powerButton=false
+      :
     fi
   }
   trap handleUSR1 USR1
   handleUSR1
 
   while [ "$d" != "q" ] && $powerButton; do
-    read  -n 1 d
-    case $d in
+    read  -t 1 -n 1 d
+    case "$d" in
+      (u) kill -USR1 $moi ;;
       (j) ((ux=ux+1)) ;;
       (l) ((ux=ux-1)) ;;
       (I) ((uy=uy+1)) ;;
@@ -1389,16 +1430,13 @@ function main {
       (i) ((uz=uz-1)) ;;
       (f) ((ur=ur+1)) ;;
       (d) ((ur=ur-1)) ;;
-      (q) powerButton=false ;;
     esac
   done
 
-  ##waiting for file:frame50 to appear in main_frame50 so sleeping .05
-
+  powerButton=false; sleep .2; wait
   waitThenDelete frame$frame "End of main" .55
   #>&2 printf "\n\e[31m--${frame}main\e[0m"
   printf "\e[?25h\nDone." # Enable cursor
-  #printf '%.2s\n' {1..47}
 }
 
-time main -50 # Run indefinitely or until ^C
+main -100 # Run indefinitely or until ^C
