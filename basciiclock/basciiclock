@@ -1054,11 +1054,12 @@ uz=0
 ur=0
 function renderFrame {
   #[ $sec == 0 ] || [ "$1" == -resetCritters ] && resetCritters # Animal glyphs reset every minute or screen resize. 
+  #exec 6>proc$frame
 
-  #>&3 printf ")a"
+  #>&6 printf "${cids[0]}:$frame("
   local thread=0 screenBuffer depthBuffer spin=0 matrixPerspective
 
-  #>&3 printf "b"
+  #>&6 printf "a"
   #matrixPerspective="$matIdent"
   matrixPerspective=$(
     setAllTraps ${frame}renderFrameA
@@ -1070,7 +1071,7 @@ function renderFrame {
     )
   )
 
-  #>&3 printf "c"
+  #>&6 printf "b"
   #matSetGlobal 0 $(matMultNTrans $matrixPerspective $(matTrans 0 0 $((  (frame % 100 - 50) * (frame % 100 - 15) - 100 )) )) # Broken zoon
   matSetGlobal 0 $(
     setAllTraps renderFrame2_frame$frame
@@ -1078,56 +1079,48 @@ function renderFrame {
     matMultNTrans $matrixPerspective $(
       setAllTraps renderFrame3_frame$frame
       #trap : INT
-      matRotz $frame
+      #matRotz $frame
       matRotx -8
       matRoty $frame
-      #matRoty "$ur"
-      #matTrans $ux $uy $uz
+      matRoty "$ur"
+      matTrans $ux $uy $uz
     )
   )
 
-  #>&3 printf "d"
-  { # Fork
-    setAllTraps renderFrame4_frame$frame
-    #exec 3>proc$frame
-    #trap : INT
-    #>&3 printf "$frame main renderFrameSub A"
-    #>&3 printf "B"
-    matTransformStatic
-    #>&3 printf "C"
-    doNormals
+  #>&6 printf "c"
+  setAllTraps renderFrame4_frame$frame
+  #exec 3>proc$frame
+  #trap : INT
+  matTransformStatic
+  #>&6 printf "d"
+  doNormals
 
-    #>&3 printf "D"
-    #scheduleObjectRenderers # &frame &thread -- Creates files with "x y z k c" per line
-    thread=1; renderAllObjects
+  #>&6 printf "c"
+  #scheduleObjectRenderers # &frame &thread -- Creates files with "x y z k c" per line
+  thread=1
+  renderAllObjects
 
-    #>&3 printf "E"
-    if ((0!=thread)); then # if any rendering threads exist...
-      #>&3 printf "a"
-      eval screenBuffer=($screenBufferEmpty)
-      #>&3 printf "b"
-      depthBuffer=($depthBufferEmpty)
-      #>&3 printf "c"
-      fillDepthBuffer # &frame &thread &screenBuffer &depthBuffer &spin
-      #>&3 printf "d"
-      # Wait for sentinel to appear from previous frame's rendering thread
-      while [ ! -e frame$((frame-1)) ]; do
-        >&2 echo .02$frame
-        sleep .03$frame
-      done #TODO this gets stuck sometimes
-      IFS=''
-      #>&3 printf "e"
-        printf "\e[0H${screenBuffer[*]}\e[$((THEIGHT-4))H$(dumpStats)" # &thread &spin
-      unset IFS
-      #>&3 printf "f."
-    fi
-    #>&3 printf "F"
-    touch frame$frame # Tell next thread it can render to the screen now
-    waitThenDelete frame$((frame-1)) "renderFrame_else_frame$frame" .04
-    #>&3 printf "G.\n"
-  } # BF &
-
-  #>&3 printf "e."
+  #>&6 printf "d"
+  if ((0!=thread)); then # if any rendering threads exist...
+    #>&6 printf "A"
+    eval screenBuffer=($screenBufferEmpty)
+    #>&6 printf "B"
+    depthBuffer=($depthBufferEmpty)
+    #>&6 printf "C"
+    fillDepthBuffer # &frame &thread &screenBuffer &depthBuffer &spin
+    #>&6 printf "D"
+    # Wait for previous process to complte
+    while [ ! -e "frame$((frame-1))" ]; do sleep .07$((frame-1)); ((++spin)); done
+    #rm frame$((frame-1))
+    IFS=''
+    #>&6 printf "E"
+      #printf "\e[0H${screenBuffer[*]}\e[$((THEIGHT-4))H$(dumpStats)" # &thread &spin
+      printf "$(dumpStats)" # &thread &spin
+    unset IFS
+    touch frame$frame
+    #>&6 printf "F"
+  fi
+  #>&6 printf ")"
 } #renderFrame 
 
 
@@ -1318,21 +1311,27 @@ function buildUrchin {
   local origin ret c=$1 r=$2 glyphs=('.' '+' '@' 'x' 'o' '-')
 
   while ((0<c)); do
-    vectorsAppend $(matMultTransNVec $(matMultNTrans $(matTrans 0 0 0) $(matRotx $((RANDOM%120))) $(matRoty $((RANDOM%120))) $(matRotz $((RANDOM%120))) ) $((r/2)) 0 0 1 $r 0 0 1)
-    objectsAdd LINE l $((RANDOM%15+1)) ${glyphs[c%6]} 0 1 $ret $((ret+1))
+    ra=$RANDOM
+    rb=$RANDOM
+    vectorsAppend $(matMultTransNVec $(matMultNTrans $(matTrans 0 0 0) $(matRotx $((ra%120))) $(matRoty $(((ra>>8)%120))) $(matRotz $((rb%120))) ) $((r/2)) 0 0 1 $r 0 0 1)
+    objectsAdd LINE l $(((rb>>8)%15+1)) ${glyphs[c%6]} 0 1 $ret $((ret+1))
    c=$((c-1))
   done
 }
 
 
 # bash
-function setAllTraps2 {
-  for s in {1..64}; do
+function setAllTraps {
+:
+}
+
+function setAllTraps3 {
+  for s in {1..31}; do
     trap ">&2 echo '($1_sig$s)'" $s
   done
 }
 
-function setAllTraps {
+function setAllTraps2 {
   trap ">&2 echo '($1_sig2)'" 2
 }
 
@@ -1343,13 +1342,15 @@ function setAllTraps {
 function handler_sigint { echo "++${frame}handler_sigint [${FUNCNAME[*]}]"; powerButton=false; }
 function handler_sigwinch { sigwinch=true; }
 
+
 ##
 ## USAGE:  basciiclock [a|b] {frame count}
 ##
+
 function main {
   framestop=${1:--1}
   setAllTraps ${frame}main
-  trap handler_sigint  PIPE INT QUIT TERM
+  trap handler_sigint  INT # PIPE INT QUIT TERM
   trap handler_sigwinch WINCH
   printf "\e[?25l\e[0m" # Disable cursor
   #>&2 printf "\e[31m::${frame}main\e[0m"
@@ -1365,7 +1366,7 @@ function main {
   #buildTexturedCubes 10 80 5
   #buildFloor 80 0  8
   #buildLines 60 0 30
-  if  :; then
+  if :; then
     buildClock 40 0
     buildClock 40 1
     buildClock 40 2
@@ -1380,46 +1381,17 @@ function main {
   #read -n 1 -p 'Abort, Retry, Fail?' k
   touch frame$frame # Sentinel so the first frame will render
   moi=$$
-  #exec 3>main.out
 
-  function handleUSR1 {
-    # Block on too many render-frame threads
-    if $powerButton && ((frame!=framestop)); then
-      if $sigwinch; then
-        echo sigwinch
-        wait
-        terminalProbe
-        resetEmptyBuffers
-        sigwinch=false
-      fi
-      if [ ! -e frame$((frame-8)) ]; then
-        ((++frame, ++ur))
-        #>&3 printf "$frame main trapusr1 A renderFrame("
-        renderFrame &
-        #updateClock
-        #updateBoxes
-        #>&3 printf "B"
-      fi
-      {
-        setAllTraps ${frame}main2
-        #exec 3>sch$frame
-        #>&3 printf "$frame main trapUSR1 schedulerSub A"
-        #>&3 printf "B kill -USR1 $$"
-        kill -USR1 $moi
-        #>&3 printf ".\n"
-      } &
-      #>&3 printf ".\n"
-    else
-      #>&3 printf "poweroff."
-      powerButton=false
-      :
-    fi
-  }
-  trap handleUSR1 USR1
-  handleUSR1
+  exec 3>main.out
+  exec 4>int.out
+  exec 5>sch.out
+
+  trap mainint USR1; mainint
 
   while [ "$d" != "q" ] && $powerButton; do
-    read  -t 1 -n 1 d
+    >&3 printf "$frame[K"
+    read -t 1 -n 1 d
+    #>&3 printf "($d)"
     case "$d" in
       (u) kill -USR1 $moi ;;
       (j) ((ux=ux+1)) ;;
@@ -1431,12 +1403,62 @@ function main {
       (f) ((ur=ur+1)) ;;
       (d) ((ur=ur-1)) ;;
     esac
+    >&3 printf '2]\n'
   done
 
-  powerButton=false; sleep .2; wait
-  waitThenDelete frame$frame "End of main" .55
-  #>&2 printf "\n\e[31m--${frame}main\e[0m"
+  >&3 printf "$frame[M"
+  powerButton=false; wait
+  >&3 printf "a"
+  #waitThenDelete frame$frame "End of main" .55
+  >&3 printf "b"
   printf "\e[?25h\nDone." # Enable cursor
+  >&3 printf "b]"
+}
+
+
+cids=(0 0 0 0)
+
+eval 10>ipc10
+
+
+function mainint {
+  >&4 printf "$frame(${cids[*]})[I"
+  #Block on too many render-frame threads
+  if $powerButton && ((frame!=framestop)); then
+
+    >&4 printf "a"
+
+    if $sigwinch; then
+      echo sigwinch
+      wait
+      terminalProbe
+      resetEmptyBuffers
+      sigwinch=false
+    fi
+
+    >&4 printf "b"
+
+    ((${cids[0]})) && wait ${cids[0]}
+      ((++frame, ++ur))
+      renderFrame &
+    cids=(${cids[*]:1} $!)
+
+    >&4 printf "d"
+    {
+      >&5 printf "$frame[S"
+      setAllTraps ${frame}main2
+      >&5 printf "a"
+      sleep .01
+      kill -USR1 $moi
+      >&5 printf "b]\n"
+    } &
+    >&4 printf "c]\n"
+
+  else
+    powerButton=false
+    >&4 printf "!]\n"
+    :
+  fi
 }
 
 main -100 # Run indefinitely or until ^C
